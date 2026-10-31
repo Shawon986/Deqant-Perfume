@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && esbuild server/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && cp -R dist/public/. public/",
+    "build": "vite build && if [ \"$VERCEL\" = \"1\" ]; then cp -R dist/public/. public/; else esbuild server/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && cp -R dist/public/. public/; fi",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "NODE_ENV=production node dist/boot.js",
@@ -111,5 +111,10 @@
   },
   "engines": {
     "node": "22.x"
+  },
+  "overrides": {
+    "drizzle-kit": {
+      "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
+    }
   }
 }
