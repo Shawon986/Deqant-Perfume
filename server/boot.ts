@@ -109,6 +109,10 @@ if (env.isProduction && !process.env.VERCEL) {
 // Vercel serves built assets from its static output directory. For client-side
 // routes that are not files, return the built SPA entry point from the function.
 if (env.isProduction && process.env.VERCEL) {
+  const { serveStatic } = await import("hono/serve-static");
+  // Serve Vite-built assets from the bundled public directory before the SPA fallback.
+  app.use("*", serveStatic({ root: "./dist/public" }));
+
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   app.notFound(async (c) => {
