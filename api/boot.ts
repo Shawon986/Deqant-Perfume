@@ -95,7 +95,7 @@ app.onError((err, c) => {
 
 export default app;
 
-if (env.isProduction) {
+if (env.isProduction && !process.env.VERCEL) {
   const { serve } = await import("@hono/node-server");
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);
@@ -103,5 +103,22 @@ if (env.isProduction) {
   const port = parseInt(process.env.PORT || "3000");
   serve({ fetch: app.fetch, port }, () => {
     log.info(`Server running on http://localhost:${port}/`);
+  });
+}
+
+// Vercel serves built assets from its static output directory. For client-side
+// routes that are not files, return the built SPA entry point from the function.
+if (env.isProduction && process.env.VERCEL) {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  app.notFound(async (c) => {
+    if (c.req.path.startsWith("/api/")) {
+      return c.json({ error: "Not Found" }, 404);
+    }
+    const html = await fs.readFile(
+      path.resolve(process.cwd(), "dist/public/index.html"),
+      "utf-8",
+    );
+    return c.html(html);
   });
 }
