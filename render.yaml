@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: deqant-store
+    runtime: node
+    plan: free
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: FIREBASE_PROJECT_ID
+        value: deqant-b30fd
+      - key: OWNER_FIREBASE_UID
+        sync: false
+      - key: TIDB_HOST
+        sync: false
+      - key: TIDB_PORT
+        value: "4000"
+      - key: TIDB_USER
+        sync: false
+      - key: TIDB_PASSWORD
+        sync: false
+      - key: TIDB_DATABASE
+        sync: false
+      - key: TIDB_ENABLE_SSL
+        value: "true"
+      - key: SUPABASE_URL
+        value: https://jpgithrcohbmjwdnyjsb.supabase.co
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: deqant-products
+      - key: VITE_FIREBASE_API_KEY
+        value: AIzaSyC6gab3JM5o5BPnIEz44XXn0gW0HkKWPVk
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        value: deqant-b30fd.firebaseapp.com
+      - key: VITE_FIREBASE_PROJECT_ID
+        value: deqant-b30fd
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        value: deqant-b30fd.firebasestorage.app
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        value: "1063106758933"
+      - key: VITE_FIREBASE_APP_ID
+        value: 1:1063106758933:web:098963ded5a428c014411c
+      - key: VITE_FIREBASE_MEASUREMENT_ID
+        value: G-5HVXZ6989V
+      - key: VITE_SUPABASE_URL
+        value: https://jpgithrcohbmjwdnyjsb.supabase.co
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_QkrKLNpXtbxs5pV2jZ8s7w_HJO3E-Cf
+      - key: RESEND_API_KEY
+        sync: false
+      - key: OWNER_EMAIL
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false

@@ -1,0 +1,5 @@
+project_id = "jpgithrcohbmjwdnyjsb"
+
+[auth.third_party.firebase]
+enabled = true
+project_id = "deqant-b30fd"
