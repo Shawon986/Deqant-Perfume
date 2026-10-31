@@ -66,7 +66,7 @@ export const storage = {
     if (error) throw new StorageError(`Supabase Storage upload failed: ${error.message}`);
     return {
       key: data.path,
-      fileName: data.path.split("/").at(-1) ?? data.path,
+      fileName: data.path.split("/").pop() ?? data.path,
       size: body.byteLength,
       contentType,
       reviewStatus: "active",
