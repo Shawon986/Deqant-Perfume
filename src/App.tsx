@@ -1,16 +1,19 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Route, Routes, useLocation } from "react-router";
 import { Toaster } from "sonner";
-import Home from "./pages/Home";
-import Shop from "./pages/Shop";
-import Product from "./pages/Product";
-import Cart from "./pages/Cart";
-import Checkout, { OrderSuccess } from "./pages/Checkout";
-import Track from "./pages/Track";
-import { About, Contact, PolicyPage } from "./pages/Info";
-import Admin from "./pages/Admin";
-import Login from "./pages/Login";
-import NotFound from "./pages/NotFound";
+const Home = lazy(() => import("./pages/Home"));
+const Shop = lazy(() => import("./pages/Shop"));
+const Product = lazy(() => import("./pages/Product"));
+const Cart = lazy(() => import("./pages/Cart"));
+const Checkout = lazy(() => import("./pages/Checkout"));
+const OrderSuccess = lazy(() => import("./pages/Checkout").then((module) => ({ default: module.OrderSuccess })));
+const Track = lazy(() => import("./pages/Track"));
+const About = lazy(() => import("./pages/Info").then((module) => ({ default: module.About })));
+const Contact = lazy(() => import("./pages/Info").then((module) => ({ default: module.Contact })));
+const PolicyPage = lazy(() => import("./pages/Info").then((module) => ({ default: module.PolicyPage })));
+const Admin = lazy(() => import("./pages/Admin"));
+const Login = lazy(() => import("./pages/Login"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 function Experience() {
   const location = useLocation();
@@ -33,6 +36,7 @@ function Experience() {
   return <>
     {loading && <div className="brand-loader" aria-label="Loading DEQANT"><img src="/brand/emblem-ivory.png" alt="DEQANT" /><span>FRAGRANCE</span><i /></div>}
     <div className="custom-cursor" aria-hidden="true" />
+    <Suspense fallback={<div className="brand-loader" aria-label="Loading DEQANT"><img src="/brand/emblem-ivory.png" alt="DEQANT" /><span>FRAGRANCE</span><i /></div>}>
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/shop" element={<Shop />} />
@@ -54,6 +58,7 @@ function Experience() {
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </Suspense>
     <Toaster position="bottom-center" toastOptions={{ className: "deqant-toast" }} />
   </>;
 }
