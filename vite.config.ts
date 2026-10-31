@@ -24,5 +24,16 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "react-vendor";
+          if (id.includes("node_modules/recharts/") || id.includes("node_modules/d3-")) return "charts-vendor";
+          if (id.includes("node_modules/firebase/") || id.includes("node_modules/@firebase/")) return "firebase-vendor";
+          if (id.includes("node_modules/@radix-ui/")) return "radix-vendor";
+        },
+      },
+    },
   },
 });
