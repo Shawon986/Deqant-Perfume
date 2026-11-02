@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { ArrowLeft, ArrowRight, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
-import { LoadingState, money, PageShell } from "@/components/Storefront";
+import { LoadingState, PageShell } from "@/components/Storefront";
+import { money } from "@/lib/format";
 import { useCart } from "@/providers/cart";
 
 export default function Cart() {
