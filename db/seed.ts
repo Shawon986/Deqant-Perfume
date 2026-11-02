@@ -19,6 +19,8 @@ async function seed() {
   if (!existing.length) {
     for (const entry of catalogue) {
       const { sizes, base, ...productData } = entry;
+      void sizes;
+      void base;
       const [{ id }] = await db.insert(products).values({ ...productData, brand: "DEQANT" }).$returningId();
       const multiplier = entry.category === "decant" ? 1 : 1;
       const variants = entry.sizes.map((size, index) => {
