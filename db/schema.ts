@@ -101,6 +101,7 @@ export const orders = mysqlTable("orders", {
   id: serial("id").primaryKey(),
   orderNumber: varchar("orderNumber", { length: 40 }).notNull().unique(),
   idempotencyKey: varchar("idempotencyKey", { length: 100 }).notNull().unique(),
+  customerUserId: bigint("customerUserId", { mode: "number", unsigned: true }).references(() => users.id, { onDelete: "set null" }),
   customerName: varchar("customerName", { length: 180 }).notNull(),
   phone: varchar("phone", { length: 30 }).notNull(),
   email: varchar("email", { length: 320 }),
@@ -121,6 +122,7 @@ export const orders = mysqlTable("orders", {
   phoneIdx: index("orders_phone_idx").on(table.phone),
   statusIdx: index("orders_status_idx").on(table.status),
   createdIdx: index("orders_created_idx").on(table.createdAt),
+  customerUserIdx: index("orders_customer_user_idx").on(table.customerUserId),
 }));
 
 export const orderItems = mysqlTable("order_items", {
