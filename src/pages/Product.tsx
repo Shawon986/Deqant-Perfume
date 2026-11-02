@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ArrowLeft, ArrowRight, Minus, Plus, ShoppingBag } from "lucide-react";
+import { ArrowLeft, ArrowRight, Heart, Minus, Plus, ShoppingBag } from "lucide-react";
 import { ErrorState, LoadingState, money, PageShell, ProductCard } from "@/components/Storefront";
 import { trpc } from "@/providers/trpc";
 import { useCart } from "@/providers/cart";
+import { useWishlist } from "@/providers/wishlist";
 
 export default function Product() {
   const { slug = "" } = useParams();
   const query = trpc.store.product.useQuery({ slug });
   const relatedQuery = trpc.store.catalog.useQuery({ sort: "popular" });
   const { add, isMutating } = useCart();
+  const wishlist = useWishlist();
   const [variantId, setVariantId] = useState<number>();
   const [quantity, setQuantity] = useState(1);
   useEffect(() => {
@@ -38,7 +40,7 @@ export default function Product() {
       <div className="product-purchase">
         <p className="eyebrow">{product.brand} / {product.family}</p><h1>{product.name}</h1>
         <div className="detail-price"><strong>{money(selected.price)}</strong>{selected.originalPrice > selected.price && <><del>{money(selected.originalPrice)}</del><span>Save {discount}%</span></>}</div>
-        <p className="detail-description">{product.description}</p>
+        <p className="detail-description">{product.description}</p><button className={`product-wishlist-action ${wishlist.has(product.slug) ? "is-saved" : ""}`} onClick={() => wishlist.toggle(product.slug)} aria-pressed={wishlist.has(product.slug)}><Heart size={17} fill={wishlist.has(product.slug) ? "currentColor" : "none"}/>{wishlist.has(product.slug) ? "Saved to wishlist" : "Save to wishlist"}</button>
         <fieldset className="size-selector"><legend>Select your size <span>{product.category === "decant" ? "Hand-prepared decant" : "Sealed intact bottle"}</span></legend><div>{variants.map((variant) => <button key={variant.id} className={selected.id === variant.id ? "selected" : ""} onClick={() => { setVariantId(variant.id); setQuantity(1); }} disabled={variant.stock === 0} aria-pressed={selected.id === variant.id}><strong>{variant.sizeMl}ml</strong><span>{variant.stock === 0 ? "Sold out" : money(variant.price)}</span></button>)}</div></fieldset>
         <div className="stock-note">{selected.stock > 0 ? <><span className="stock-dot" /> {selected.stock < 8 ? `Only ${selected.stock} left in this size` : "In stock, ready to prepare"}</> : "Currently unavailable"}</div>
         <div className="add-row"><div className="quantity"><button onClick={() => setQuantity(Math.max(1, quantity - 1))} disabled={quantity <= 1} aria-label="Decrease quantity"><Minus /></button><span>{quantity}</span><button onClick={() => setQuantity(Math.min(Math.min(10, selected.stock), quantity + 1))} disabled={quantity >= Math.min(10, selected.stock)} aria-label="Increase quantity"><Plus /></button></div><button className="button button-burgundy add-button" onClick={() => add(selected.id, quantity)} disabled={isMutating || selected.stock === 0}><ShoppingBag />{isMutating ? "Adding…" : "Add to cart"}</button></div>
