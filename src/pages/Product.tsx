@@ -6,6 +6,7 @@ import { money } from "@/lib/format";
 import { trpc } from "@/providers/trpc";
 import { useCart } from "@/providers/cart";
 import { useWishlist } from "@/providers/wishlist";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Product() {
   const { slug = "" } = useParams();
@@ -13,6 +14,13 @@ export default function Product() {
   const relatedQuery = trpc.store.catalog.useQuery({ sort: "popular" });
   const { add, isMutating } = useCart();
   const wishlist = useWishlist();
+  const { user } = useAuth();
+  const reviews = trpc.store.productReviews.useQuery({ slug });
+  const [reviewOrderId, setReviewOrderId] = useState("");
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewBody, setReviewBody] = useState("");
+  const submitReview = trpc.store.submitReview.useMutation({ onSuccess: async () => { await reviews.refetch(); setReviewOrderId(""); setReviewTitle(""); setReviewBody(""); } });
   const [variantId, setVariantId] = useState<number>();
   const [quantity, setQuantity] = useState(1);
   useEffect(() => {
@@ -47,6 +55,7 @@ export default function Product() {
       </div>
     </section>
     <section className="notes-story"><p>ON SKIN</p><h2>A composition in<br /><em>three movements.</em></h2><div>{product.notes.split(" · ").map((note, index) => <div key={note}><span>0{index + 1}</span><h3>{note}</h3><p>{index === 0 ? "The first impression" : index < 3 ? "The unfolding heart" : "The lasting trail"}</p></div>)}</div></section>
+    <section className="product-reviews"><div className="section-intro"><p>VERIFIED CUSTOMER NOTES</p><h2>Worn, loved<br/><em>and remembered.</em></h2><span>{reviews.data?.count ?? 0} approved reviews · Average {reviews.data?.average ?? "—"}/5</span></div><div className="review-list">{reviews.data?.reviews.map((review) => <article key={review.id}><div aria-label={"Rated " + review.rating + " out of 5"}>{"★".repeat(review.rating)}{"☆".repeat(5-review.rating)}</div><h3>{review.title}</h3><p>{review.body}</p><small>{review.customerName || "Verified customer"} · {new Date(review.createdAt).toLocaleDateString()}</small></article>)}{!reviews.data?.count && <p>Be the first to share a verified experience with this fragrance.</p>}</div>{user && <form className="review-form" onSubmit={(event) => { event.preventDefault(); submitReview.mutate({ slug, orderId: Number(reviewOrderId), rating: reviewRating, title: reviewTitle, body: reviewBody }); }}><h3>Write a verified review</h3><p>Only customers with a delivered order for this fragrance can submit a review. Your review appears after moderation.</p><label>Delivered order record ID<input type="number" min="1" required value={reviewOrderId} onChange={(event) => setReviewOrderId(event.target.value)} placeholder="Find the order ID in your account history"/></label><label>Rating<select value={reviewRating} onChange={(event) => setReviewRating(Number(event.target.value))}>{[5,4,3,2,1].map((value) => <option key={value} value={value}>{value} / 5</option>)}</select></label><label>Review title<input required minLength={3} maxLength={120} value={reviewTitle} onChange={(event) => setReviewTitle(event.target.value)}/></label><label>Your experience<textarea required minLength={10} maxLength={2000} rows={4} value={reviewBody} onChange={(event) => setReviewBody(event.target.value)}/></label>{submitReview.error && <p className="form-error">{submitReview.error.message}</p>}{submitReview.isSuccess && <p>Your review was submitted for moderation.</p>}<button className="button button-burgundy" disabled={submitReview.isPending}>Submit review</button></form>}</section>
     {related.length > 0 && <section className="related-products"><div className="section-intro"><p>IN THE SAME FAMILY</p><h2>You may also<br /><em>be drawn to.</em></h2></div><div className="catalog-grid">{related.map((entry, index) => <ProductCard key={entry.product.id} entry={entry} index={index} />)}</div><Link className="text-link" to="/shop">Explore all fragrance <ArrowRight /></Link></section>}
   </PageShell>;
 }
