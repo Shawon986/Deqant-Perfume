@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { cartItems, carts, contactMessages, deliveryZones, orderItems, orders, productImages, products, productVariants, websiteSettings } from "@db/schema";
+import { cartItems, carts, contactMessages, coupons, customerAddresses, deliveryZones, orderItems, orders, productImages, productReviews, products, productVariants, users, websiteSettings } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { authedQuery, createRouter, publicQuery } from "./middleware";
 import { sendOrderNotifications } from "./email";
@@ -69,6 +69,71 @@ async function listCatalog() {
 }
 
 export const storeRouter = createRouter({
+
+  addresses: authedQuery.query(async ({ ctx }) => {
+    return getDb().select().from(customerAddresses).where(eq(customerAddresses.userId, ctx.user.id)).orderBy(desc(customerAddresses.isDefault), desc(customerAddresses.updatedAt)).limit(20);
+  }),
+  saveAddress: authedQuery.input(z.object({
+    id: z.number().int().positive().optional(), label: z.string().trim().min(1).max(60),
+    recipientName: z.string().trim().min(2).max(180), phone: phoneSchema,
+    district: z.string().trim().min(2).max(120), area: z.string().trim().min(2).max(160),
+    address: z.string().trim().min(8).max(1200), instructions: z.string().max(1000).optional(),
+    isDefault: z.boolean().default(false),
+  })).mutation(async ({ input, ctx }) => {
+    const db = getDb();
+    return db.transaction(async (tx) => {
+      if (input.isDefault) await tx.update(customerAddresses).set({ isDefault: false }).where(eq(customerAddresses.userId, ctx.user.id));
+      const { id, ...values } = input;
+      if (id) {
+        await tx.update(customerAddresses).set(values).where(and(eq(customerAddresses.id, id), eq(customerAddresses.userId, ctx.user.id)));
+        return { id };
+      }
+      const [{ id: createdId }] = await tx.insert(customerAddresses).values({ ...values, userId: ctx.user.id }).$returningId();
+      return { id: createdId };
+    });
+  }),
+  deleteAddress: authedQuery.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await getDb().delete(customerAddresses).where(and(eq(customerAddresses.id, input.id), eq(customerAddresses.userId, ctx.user.id)));
+    return { ok: true };
+  }),
+  setDefaultAddress: authedQuery.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    const db = getDb();
+    await db.transaction(async (tx) => {
+      await tx.update(customerAddresses).set({ isDefault: false }).where(eq(customerAddresses.userId, ctx.user.id));
+      await tx.update(customerAddresses).set({ isDefault: true }).where(and(eq(customerAddresses.id, input.id), eq(customerAddresses.userId, ctx.user.id)));
+    });
+    return { ok: true };
+  }),
+  productReviews: publicQuery.input(z.object({ slug: z.string().trim().min(1).max(160) })).query(async ({ input }) => {
+    const [product] = await getDb().select({ id: products.id }).from(products).where(and(eq(products.slug, input.slug), eq(products.active, true))).limit(1);
+    if (!product) return { average: 0, count: 0, reviews: [] };
+    const reviews = await getDb().select({ id: productReviews.id, rating: productReviews.rating, title: productReviews.title, body: productReviews.body, createdAt: productReviews.createdAt, customerName: users.name }).from(productReviews).innerJoin(users, eq(productReviews.userId, users.id)).where(and(eq(productReviews.productId, product.id), eq(productReviews.status, "approved"))).orderBy(desc(productReviews.createdAt)).limit(50);
+    return { average: reviews.length ? Number((reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)) : 0, count: reviews.length, reviews };
+  }),
+  submitReview: authedQuery.input(z.object({ slug: z.string().trim().min(1).max(160), orderId: z.number().int().positive(), rating: z.number().int().min(1).max(5), title: z.string().trim().min(3).max(120), body: z.string().trim().min(10).max(2000) })).mutation(async ({ input, ctx }) => {
+    const db = getDb();
+    const [product] = await db.select({ id: products.id }).from(products).where(and(eq(products.slug, input.slug), eq(products.active, true))).limit(1);
+    if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found." });
+    const [order] = await db.select({ id: orders.id }).from(orders).innerJoin(orderItems, eq(orderItems.orderId, orders.id)).where(and(eq(orders.id, input.orderId), eq(orders.customerUserId, ctx.user.id), eq(orders.status, "delivered"), eq(orderItems.productId, product.id))).limit(1);
+    if (!order) throw new TRPCError({ code: "FORBIDDEN", message: "Only customers with a delivered order can review this fragrance." });
+    const [existing] = await db.select({ id: productReviews.id }).from(productReviews).where(and(eq(productReviews.productId, product.id), eq(productReviews.userId, ctx.user.id))).limit(1);
+    if (existing) throw new TRPCError({ code: "CONFLICT", message: "You have already reviewed this fragrance." });
+    await db.insert(productReviews).values({ productId: product.id, userId: ctx.user.id, orderId: order.id, rating: input.rating, title: input.title, body: input.body, status: "pending" });
+    return { ok: true, message: "Your review was submitted and is awaiting moderation." };
+  }),
+  validateCoupon: publicQuery.input(z.object({ code: z.string().trim().min(2).max(40), subtotal: z.number().int().positive() })).query(async ({ input }) => {
+    const code = input.code.toUpperCase();
+    const [coupon] = await getDb().select().from(coupons).where(and(eq(coupons.code, code), eq(coupons.active, true))).limit(1);
+    const now = Date.now();
+    if (!coupon || (coupon.startsAt && coupon.startsAt.getTime() > now) || (coupon.expiresAt && coupon.expiresAt.getTime() < now) || (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) || input.subtotal < coupon.minSubtotal) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon is invalid, expired, or does not meet its minimum order value." });
+    }
+    const raw = coupon.discountType === "percent" ? Math.floor(input.subtotal * coupon.discountValue / 100) : coupon.discountValue;
+    const discount = Math.min(input.subtotal, coupon.maxDiscount === null ? raw : Math.min(raw, coupon.maxDiscount));
+    if (discount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon cannot be applied to this order." });
+    return { code: coupon.code, discount, subtotal: input.subtotal };
+  }),
+
   catalog: publicQuery.input(z.object({
     q: z.string().trim().max(120).optional(), category: z.enum(["decant", "intact"]).optional(),
     size: z.number().int().optional(), maxPrice: z.number().int().optional(),
