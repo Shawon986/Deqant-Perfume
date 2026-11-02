@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { cartItems, carts, contactMessages, deliveryZones, orderItems, orders, productImages, products, productVariants, websiteSettings } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, publicQuery } from "./middleware";
+import { authedQuery, createRouter, publicQuery } from "./middleware";
 import { sendOrderNotifications } from "./email";
 import { withMediaUrl } from "./media";
 
@@ -145,6 +145,14 @@ export const storeRouter = createRouter({
     return readCart(input.token);
   }),
 
+  myOrders: authedQuery.query(async ({ ctx }) => {
+    const db = getDb();
+    const rows = await db.select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt, phone: orders.phone }).from(orders).where(eq(orders.customerUserId, ctx.user.id)).orderBy(desc(orders.createdAt)).limit(50);
+    if (!rows.length) return [];
+    const items = await db.select({ orderId: orderItems.orderId, productName: orderItems.productName, sizeMl: orderItems.sizeMl, quantity: orderItems.quantity, lineTotal: orderItems.lineTotal }).from(orderItems).where(inArray(orderItems.orderId, rows.map((row) => row.id)));
+    return rows.map((order) => ({ ...order, items: items.filter((item) => item.orderId === order.id) }));
+  }),
+
   checkout: publicQuery.input(z.object({
     token: z.string().uuid(), idempotencyKey: z.string().uuid(),
     customerName: z.string().trim().min(2).max(180), phone: phoneSchema,
@@ -173,7 +181,7 @@ export const storeRouter = createRouter({
       }
       const subtotal = lines.reduce((sum, line) => sum + line.variant.price * line.item.quantity, 0);
       const [{ id }] = await tx.insert(orders).values({
-        orderNumber, idempotencyKey: input.idempotencyKey, customerName: input.customerName,
+        orderNumber, idempotencyKey: input.idempotencyKey, customerUserId: ctx.user?.id ?? null, customerName: input.customerName,
         phone: input.phone, email: input.email || null, district: input.district, area: input.area,
         address: input.address, instructions: input.instructions || null, deliveryZoneId: zone.id,
         subtotal, deliveryFee: zone.fee, total: subtotal + zone.fee,
