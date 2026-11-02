@@ -1,9 +1,8 @@
 import { Link } from "react-router";
 import { ArrowRight, LogOut, PackageSearch, ShieldCheck, UserRound } from "lucide-react";
-import { LoadingState, PageShell } from "@/components/Storefront";
+import { LoadingState, money, PageShell } from "@/components/Storefront";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
-import { money } from "@/components/Storefront";
 
 export default function Account() {
   const { user, isLoading, logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login" });
