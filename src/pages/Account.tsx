@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router";
 import { ArrowRight, LogOut, MapPin, PackageSearch, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { LoadingState, PageShell } from "@/components/Storefront";
