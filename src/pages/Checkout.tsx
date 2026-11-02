@@ -1,7 +1,8 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { ArrowLeft, ArrowRight, Check, LockKeyhole, PackageCheck } from "lucide-react";
-import { ErrorState, LoadingState, money, PageShell } from "@/components/Storefront";
+import { ErrorState, LoadingState, PageShell } from "@/components/Storefront";
+import { money } from "@/lib/format";
 import { useCart } from "@/providers/cart";
 import { trpc } from "@/providers/trpc";
 
