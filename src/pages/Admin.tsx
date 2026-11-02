@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { BarChart3, Boxes, ChevronDown, ClipboardList, Inbox, LogOut, Plus, Settings, Truck, Users } from "lucide-react";
-import { Logo, money } from "@/components/Storefront";
+import { Logo } from "@/components/Storefront";
+import { money } from "@/lib/format";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
 
