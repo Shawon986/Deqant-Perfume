@@ -75,7 +75,7 @@ export const storage = {
 
   async getPresignedUrl(input: { key: string }): Promise<{ key: string; url: string; expireTime: string }> {
     const key = input.key;
-    if (!key || key.length > 512 || key.split("/").includes("..") || key.includes("\\")) {
+    if (!key || key.length > 512 || !key.startsWith("products/") || key.split("/").includes("..") || key.includes("\\")) {
       throw new StorageError("Invalid storage object key.");
     }
     const expiresIn = 60 * 10;
