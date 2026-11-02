@@ -12,7 +12,7 @@ const productInput = z.object({
   name: z.string().trim().min(2).max(180), slug: z.string().trim().min(2).max(160).regex(/^[a-z0-9-]+$/),
   brand: z.string().trim().min(2).max(120), category: z.enum(["decant", "intact"]),
   description: z.string().trim().min(20), notes: z.string().trim().min(3), family: z.string().trim().min(2),
-  imageUrl: z.string().trim().max(2000).refine((value) => value === "" || value.startsWith("/") || /^https:\\/\\//i.test(value), "Use a local path or HTTPS image URL"), imageKey: z.string().max(600).optional().nullable(), bestSeller: z.boolean(), specialOffer: z.boolean(), featured: z.boolean(),
+  imageUrl: z.string().trim().max(2000).refine((value) => value === "" || value.startsWith("/") || /^https:\/\//i.test(value), "Use a local path or HTTPS image URL"), imageKey: z.string().max(600).optional().nullable(), bestSeller: z.boolean(), specialOffer: z.boolean(), featured: z.boolean(),
   variants: z.array(variantInput).min(1).max(8),
 }).refine((data) => Boolean(data.imageUrl || data.imageKey), { message: "Add an image or image URL", path: ["imageUrl"] })
   .refine((data) => data.variants.every((v) => v.price <= v.originalPrice), { message: "Discounted price cannot exceed regular price", path: ["variants"] })
