@@ -1,4 +1,4 @@
-import { asc, desc, eq, isNotNull, like, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, like, ne, or, sum } from "drizzle-orm";
 import { z } from "zod";
 import { contactMessages, deliveryZones, emailLogs, orderItems, orders, productImages, products, productVariants, users, websiteSettings } from "@db/schema";
 import { getDb } from "./queries/connection";
@@ -56,15 +56,10 @@ export const adminRouter = createRouter({
     const db = getDb();
     const [customerRows, orderRows] = await Promise.all([
       db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignInAt: users.lastSignInAt }).from(users).where(eq(users.role, "user")).orderBy(desc(users.lastSignInAt)).limit(200),
-      db.select({ customerUserId: orders.customerUserId, total: orders.total, status: orders.status }).from(orders).where(isNotNull(orders.customerUserId)),
+      db.select({ customerUserId: orders.customerUserId, count: count(), value: sum(orders.total) }).from(orders).where(and(isNotNull(orders.customerUserId), ne(orders.status, "cancelled"))).groupBy(orders.customerUserId),
     ]);
     const stats = new Map<number, { count: number; value: number }>();
-    for (const order of orderRows) if (order.customerUserId !== null) {
-      const current = stats.get(order.customerUserId) ?? { count: 0, value: 0 };
-      current.count += 1;
-      if (order.status !== "cancelled") current.value += order.total;
-      stats.set(order.customerUserId, current);
-    }
+    for (const order of orderRows) if (order.customerUserId !== null) stats.set(order.customerUserId, { count: Number(order.count), value: Number(order.value ?? 0) });
     return customerRows.map((customer) => ({ ...customer, ...(stats.get(customer.id) ?? { count: 0, value: 0 }) }));
   }),
 
