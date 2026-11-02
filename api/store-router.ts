@@ -224,7 +224,7 @@ export const storeRouter = createRouter({
     email: z.union([z.literal(""), z.string().email().max(320)]).optional(),
     district: z.string().trim().min(2).max(120), area: z.string().trim().min(2).max(160),
     address: z.string().trim().min(8).max(1200), instructions: z.string().max(1000).optional(),
-    deliveryZoneId: z.number().int().positive(),
+    deliveryZoneId: z.number().int().positive(), couponCode: z.string().trim().max(40).optional(),
   })).mutation(async ({ input, ctx }) => {
     rateLimit(ctx.req, "checkout", 8, 10 * 60_000);
     const db = getDb();
@@ -245,11 +245,25 @@ export const storeRouter = createRouter({
         await tx.update(productVariants).set({ stock: row.variant.stock - item.quantity }).where(eq(productVariants.id, row.variant.id));
       }
       const subtotal = lines.reduce((sum, line) => sum + line.variant.price * line.item.quantity, 0);
+      let couponCode: string | null = null;
+      let discountAmount = 0;
+      if (input.couponCode) {
+        const [coupon] = await tx.select().from(coupons).where(eq(coupons.code, input.couponCode.toUpperCase())).for("update").limit(1);
+        const now = Date.now();
+        if (!coupon || !coupon.active || (coupon.startsAt && coupon.startsAt.getTime() > now) || (coupon.expiresAt && coupon.expiresAt.getTime() < now) || (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) || subtotal < coupon.minSubtotal) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon is invalid, expired, or no longer available." });
+        }
+        const rawDiscount = coupon.discountType === "percent" ? Math.floor(subtotal * coupon.discountValue / 100) : coupon.discountValue;
+        discountAmount = Math.min(subtotal, coupon.maxDiscount === null ? rawDiscount : Math.min(rawDiscount, coupon.maxDiscount));
+        if (discountAmount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon cannot be applied to this order." });
+        couponCode = coupon.code;
+        await tx.update(coupons).set({ usageCount: coupon.usageCount + 1 }).where(eq(coupons.id, coupon.id));
+      }
       const [{ id }] = await tx.insert(orders).values({
         orderNumber, idempotencyKey: input.idempotencyKey, customerUserId: ctx.user?.id ?? null, customerName: input.customerName,
         phone: input.phone, email: input.email || null, district: input.district, area: input.area,
         address: input.address, instructions: input.instructions || null, deliveryZoneId: zone.id,
-        subtotal, deliveryFee: zone.fee, total: subtotal + zone.fee,
+        subtotal, deliveryFee: zone.fee, discountAmount, couponCode, total: subtotal + zone.fee - discountAmount,
       }).$returningId();
       await tx.insert(orderItems).values(lines.map((line) => ({
         orderId: id, productId: line.product.id, variantId: line.variant.id,
