@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ArrowLeft, ArrowRight, Heart, Minus, Plus, ShoppingBag } from "lucide-react";
-import { ErrorState, LoadingState, money, PageShell, ProductCard } from "@/components/Storefront";
+import { ErrorState, LoadingState, PageShell, ProductCard } from "@/components/Storefront";
+import { money } from "@/lib/format";
 import { trpc } from "@/providers/trpc";
 import { useCart } from "@/providers/cart";
 import { useWishlist } from "@/providers/wishlist";
