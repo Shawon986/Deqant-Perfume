@@ -12,9 +12,16 @@ const tokenSchema = z.string().uuid().optional().nullable();
 const phoneSchema = z.string().trim().min(11).max(20).regex(/^[+0-9\s-]+$/, "Enter a valid mobile number");
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(req: Request, scope: string, limit: number, windowMs: number) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const key = `${scope}:${ip}`;
+  // Vercel supplies the connecting address in x-forwarded-for. Keep this
+  // process-local guard bounded; production should additionally use the
+  // deployment provider's distributed WAF/rate limiting.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const key = `${scope}:${ip.slice(0, 80)}`;
   const now = Date.now();
+  if (rateBuckets.size > 20_000) {
+    for (const [bucket, value] of rateBuckets) if (value.resetAt <= now) rateBuckets.delete(bucket);
+    if (rateBuckets.size > 20_000) rateBuckets.clear();
+  }
   const current = rateBuckets.get(key);
   if (!current || current.resetAt < now) rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
   else {
@@ -96,13 +103,15 @@ export const storeRouter = createRouter({
   }),
 
   settings: publicQuery.query(async () => {
-    const rows = await getDb().select().from(websiteSettings);
-    return Object.fromEntries(rows.map((row) => [row.settingKey, row.settingValue]));
+    // Never expose arbitrary settings through the public storefront API.
+    const publicKeys = ["announcement", "contactEmail", "contactPhone", "footerText", "heroTitle", "heroText"];
+    const rows = await getDb().select({ settingKey: websiteSettings.settingKey, settingValue: websiteSettings.settingValue }).from(websiteSettings);
+    return Object.fromEntries(rows.filter((row) => publicKeys.includes(row.settingKey)).map((row) => [row.settingKey, row.settingValue]));
   }),
 
   zones: publicQuery.query(() => getDb().select().from(deliveryZones).where(eq(deliveryZones.active, true)).orderBy(asc(deliveryZones.fee))),
 
-  cart: publicQuery.input(z.object({ token: tokenSchema }).optional()).query(({ input }) => readCart(input?.token)),
+  cart: publicQuery.input(z.object({ token: tokenSchema }).optional()).query(({ input, ctx }) => { rateLimit(ctx.req, "cart-read", 180, 60_000); return readCart(input?.token); }),
 
   addToCart: publicQuery.input(z.object({ token: tokenSchema, variantId: z.number().int().positive(), quantity: z.number().int().min(1).max(10).default(1) })).mutation(async ({ input, ctx }) => {
     rateLimit(ctx.req, "cart", 120, 60_000);
@@ -118,7 +127,8 @@ export const storeRouter = createRouter({
     return readCart(cart.token);
   }),
 
-  updateCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive(), quantity: z.number().int().min(1).max(10) })).mutation(async ({ input }) => {
+  updateCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive(), quantity: z.number().int().min(1).max(10) })).mutation(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "cart-write", 120, 60_000);
     const db = getDb();
     const [row] = await db.select({ item: cartItems, stock: productVariants.stock }).from(cartItems).innerJoin(productVariants, eq(cartItems.variantId, productVariants.id)).innerJoin(carts, eq(cartItems.cartId, carts.id)).where(and(eq(cartItems.id, input.itemId), eq(carts.token, input.token))).limit(1);
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Cart item not found." });
@@ -127,7 +137,8 @@ export const storeRouter = createRouter({
     return readCart(input.token);
   }),
 
-  removeCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive() })).mutation(async ({ input }) => {
+  removeCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "cart-write", 120, 60_000);
     const db = getDb();
     const [cart] = await db.select().from(carts).where(eq(carts.token, input.token)).limit(1);
     if (cart) await db.delete(cartItems).where(and(eq(cartItems.id, input.itemId), eq(cartItems.cartId, cart.id)));
@@ -181,10 +192,18 @@ export const storeRouter = createRouter({
     return { orderNumber: order.orderNumber, total: order.total };
   }),
 
-  orderSuccess: publicQuery.input(z.object({ orderNumber: z.string().min(5), phone: phoneSchema })).query(async ({ input }) => {
-    const [order] = await getDb().select().from(orders).where(and(eq(orders.orderNumber, input.orderNumber), eq(orders.phone, input.phone))).limit(1);
+  orderSuccess: publicQuery.input(z.object({ orderNumber: z.string().trim().min(5).max(40), phone: phoneSchema })).query(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "order-lookup", 8, 10 * 60_000);
+    const [order] = await getDb().select({
+      id: orders.id, orderNumber: orders.orderNumber, status: orders.status, total: orders.total,
+      deliveryFee: orders.deliveryFee, customerName: orders.customerName, address: orders.address,
+      area: orders.area, district: orders.district, phone: orders.phone,
+    }).from(orders).where(and(eq(orders.orderNumber, input.orderNumber.toUpperCase()), eq(orders.phone, input.phone))).limit(1);
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "We could not find an order with those details." });
-    const items = await getDb().select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const items = await getDb().select({
+      id: orderItems.id, productName: orderItems.productName, sizeMl: orderItems.sizeMl,
+      quantity: orderItems.quantity, lineTotal: orderItems.lineTotal,
+    }).from(orderItems).where(eq(orderItems.orderId, order.id));
     return { order, items };
   }),
 
