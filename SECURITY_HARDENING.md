@@ -23,9 +23,18 @@
 6. Keep production and preview environment variables separate. Do not point untrusted preview deployments at production data.
 7. Review Vercel logs and database access logs regularly; alert on repeated 401/403/429 responses and unusual order lookups.
 
-## Database change required before using account order history
+## Database changes required before deployment
 
-Run `db/migrations/0001_add_customer_order_owner.sql` against the DEQANT TiDB database before deploying this branch to an environment that will serve the new account page. It adds a nullable customer owner to orders, so existing guest orders are preserved. Only orders placed while signed in after this change will appear in a customer's account history.
+Run these SQL migrations against the DEQANT TiDB database in numerical order, before deploying the new application code:
+
+1. `db/migrations/0001_add_customer_order_owner.sql` — associates new signed-in orders with the verified customer account. Existing guest orders remain unchanged.
+2. `db/migrations/0002_customer_features_and_coupons.sql` — adds the customer address book, verified product reviews, coupon definitions, and coupon/discount snapshots on orders.
+
+Back up the database first and verify the migration result in a staging database. Existing orders receive a zero discount and no coupon code. Existing customers can save addresses after deployment. Reviews are only accepted from signed-in customers with a delivered order containing that product; new reviews remain pending until an administrator approves them. Coupon usage and discount calculation are performed on the server during COD checkout.
+
+## Payment model
+
+This release intentionally supports cash on delivery only. No online payment gateway, card collection, or payment-provider credentials are required.
 
 ## Scope and limitation
 
