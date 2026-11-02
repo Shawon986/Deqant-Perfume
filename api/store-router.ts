@@ -84,6 +84,10 @@ export const storeRouter = createRouter({
     return db.transaction(async (tx) => {
       if (input.isDefault) await tx.update(customerAddresses).set({ isDefault: false }).where(eq(customerAddresses.userId, ctx.user.id));
       const { id, ...values } = input;
+      if (!id) {
+        const existingAddresses = await tx.select({ id: customerAddresses.id }).from(customerAddresses).where(eq(customerAddresses.userId, ctx.user.id)).limit(20);
+        if (existingAddresses.length >= 20) throw new TRPCError({ code: "BAD_REQUEST", message: "You can save up to 20 delivery addresses." });
+      }
       if (id) {
         await tx.update(customerAddresses).set(values).where(and(eq(customerAddresses.id, id), eq(customerAddresses.userId, ctx.user.id)));
         return { id };
@@ -111,6 +115,7 @@ export const storeRouter = createRouter({
     return { average: reviews.length ? Number((reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)) : 0, count: reviews.length, reviews };
   }),
   submitReview: authedQuery.input(z.object({ slug: z.string().trim().min(1).max(160), orderId: z.number().int().positive(), rating: z.number().int().min(1).max(5), title: z.string().trim().min(3).max(120), body: z.string().trim().min(10).max(2000) })).mutation(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "review-submit", 5, 60 * 60_000);
     const db = getDb();
     const [product] = await db.select({ id: products.id }).from(products).where(and(eq(products.slug, input.slug), eq(products.active, true))).limit(1);
     if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found." });
@@ -121,7 +126,8 @@ export const storeRouter = createRouter({
     await db.insert(productReviews).values({ productId: product.id, userId: ctx.user.id, orderId: order.id, rating: input.rating, title: input.title, body: input.body, status: "pending" });
     return { ok: true, message: "Your review was submitted and is awaiting moderation." };
   }),
-  validateCoupon: publicQuery.input(z.object({ code: z.string().trim().min(2).max(40), subtotal: z.number().int().positive() })).query(async ({ input }) => {
+  validateCoupon: publicQuery.input(z.object({ code: z.string().trim().min(2).max(40), subtotal: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "coupon-validate", 20, 10 * 60_000);
     const code = input.code.toUpperCase();
     const [coupon] = await getDb().select().from(coupons).where(and(eq(coupons.code, code), eq(coupons.active, true))).limit(1);
     const now = Date.now();
