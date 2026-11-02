@@ -12,6 +12,18 @@ import { discoveryRoutes, mediaRoutes } from "./routes/public";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
+// Baseline browser security headers. API responses never need to be framed,
+// sniffed as another content type, or granted device permissions.
+app.use("*", async (c, next) => {
+  await next();
+  c.res.headers.set("X-Content-Type-Options", "nosniff");
+  c.res.headers.set("X-Frame-Options", "DENY");
+  c.res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  c.res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  c.res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  if (env.isProduction) c.res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+});
+
 app.get("/health", (c) => c.json({ status: "ok", service: "deqant" }));
 
 // One middleware for both halves of request observability, because they need the
@@ -59,7 +71,7 @@ app.use("*", async (c, next) => {
 // rebuild throw `TypeError: Cannot read private member #state ...`, so every
 // bodyless request (DELETE/PATCH on the app's own REST routes) 500s at dispatch.
 // /api/log keeps its own 64KB caps in lib/clientlog.ts, so it needs no middleware.
-app.use("/api/trpc/*", bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+app.use("/api/trpc/*", bodyLimit({ maxSize: 16 * 1024 * 1024 }));
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",
