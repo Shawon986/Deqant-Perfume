@@ -167,6 +167,52 @@ export const contactMessages = mysqlTable("contact_messages", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+
+export const customerAddresses = mysqlTable("customer_addresses", {
+  id: serial("id").primaryKey(),
+  userId: bigint("userId", { mode: "number", unsigned: true }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  label: varchar("label", { length: 60 }).notNull().default("Home"),
+  recipientName: varchar("recipientName", { length: 180 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  district: varchar("district", { length: 120 }).notNull(),
+  area: varchar("area", { length: 160 }).notNull(),
+  address: text("address").notNull(),
+  instructions: varchar("instructions", { length: 1000 }),
+  isDefault: boolean("isDefault").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => ({ userIdx: index("customer_addresses_user_idx").on(table.userId) }));
+
+export const productReviews = mysqlTable("product_reviews", {
+  id: serial("id").primaryKey(),
+  productId: bigint("productId", { mode: "number", unsigned: true }).notNull().references(() => products.id, { onDelete: "cascade" }),
+  userId: bigint("userId", { mode: "number", unsigned: true }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  orderId: bigint("orderId", { mode: "number", unsigned: true }).notNull().references(() => orders.id, { onDelete: "cascade" }),
+  rating: int("rating").notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  body: text("body").notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index("product_reviews_product_idx").on(table.productId),
+  verifiedReviewUnique: uniqueIndex("product_reviews_verified_unique").on(table.productId, table.userId),
+}));
+
+export const coupons = mysqlTable("coupons", {
+  id: serial("id").primaryKey(),
+  code: varchar("code", { length: 40 }).notNull().unique(),
+  discountType: mysqlEnum("discountType", ["percent", "fixed"]).notNull(),
+  discountValue: int("discountValue").notNull(),
+  minSubtotal: int("minSubtotal").default(0).notNull(),
+  maxDiscount: int("maxDiscount"),
+  usageLimit: int("usageLimit"),
+  usageCount: int("usageCount").default(0).notNull(),
+  startsAt: timestamp("startsAt"),
+  expiresAt: timestamp("expiresAt"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Product = typeof products.$inferSelect;
