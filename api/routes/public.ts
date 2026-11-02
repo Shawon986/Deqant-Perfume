@@ -7,7 +7,7 @@ import { getDb } from "../queries/connection";
 export const mediaRoutes = new Hono();
 mediaRoutes.get("/", async (c) => {
   const key = c.req.query("key");
-  if (!key || key.length > 600 || key.includes("..")) return c.body(null, 400);
+  if (!key || key.length > 600 || key.includes("..") || key.includes("\\") || !/^products\/[a-zA-Z0-9._/-]+$/.test(key)) return c.body(null, 400);
   const { url } = await storage.getPresignedUrl({ key });
   return c.redirect(url, 302);
 });

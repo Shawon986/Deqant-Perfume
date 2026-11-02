@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { cartItems, carts, contactMessages, deliveryZones, orderItems, orders, productImages, products, productVariants, websiteSettings } from "@db/schema";
+import { cartItems, carts, contactMessages, coupons, customerAddresses, deliveryZones, orderItems, orders, productImages, productReviews, products, productVariants, users, websiteSettings } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, publicQuery } from "./middleware";
+import { authedQuery, createRouter, publicQuery } from "./middleware";
 import { sendOrderNotifications } from "./email";
 import { withMediaUrl } from "./media";
 
@@ -12,9 +12,16 @@ const tokenSchema = z.string().uuid().optional().nullable();
 const phoneSchema = z.string().trim().min(11).max(20).regex(/^[+0-9\s-]+$/, "Enter a valid mobile number");
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(req: Request, scope: string, limit: number, windowMs: number) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const key = `${scope}:${ip}`;
+  // Vercel supplies the connecting address in x-forwarded-for. Keep this
+  // process-local guard bounded; production should additionally use the
+  // deployment provider's distributed WAF/rate limiting.
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const key = `${scope}:${ip.slice(0, 80)}`;
   const now = Date.now();
+  if (rateBuckets.size > 20_000) {
+    for (const [bucket, value] of rateBuckets) if (value.resetAt <= now) rateBuckets.delete(bucket);
+    if (rateBuckets.size > 20_000) rateBuckets.clear();
+  }
   const current = rateBuckets.get(key);
   if (!current || current.resetAt < now) rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
   else {
@@ -62,8 +69,79 @@ async function listCatalog() {
 }
 
 export const storeRouter = createRouter({
+
+  addresses: authedQuery.query(async ({ ctx }) => {
+    return getDb().select().from(customerAddresses).where(eq(customerAddresses.userId, ctx.user.id)).orderBy(desc(customerAddresses.isDefault), desc(customerAddresses.updatedAt)).limit(20);
+  }),
+  saveAddress: authedQuery.input(z.object({
+    id: z.number().int().positive().optional(), label: z.string().trim().min(1).max(60),
+    recipientName: z.string().trim().min(2).max(180), phone: phoneSchema,
+    district: z.string().trim().min(2).max(120), area: z.string().trim().min(2).max(160),
+    address: z.string().trim().min(8).max(1200), instructions: z.string().max(1000).optional(),
+    isDefault: z.boolean().default(false),
+  })).mutation(async ({ input, ctx }) => {
+    const db = getDb();
+    return db.transaction(async (tx) => {
+      if (input.isDefault) await tx.update(customerAddresses).set({ isDefault: false }).where(eq(customerAddresses.userId, ctx.user.id));
+      const { id, ...values } = input;
+      if (!id) {
+        const existingAddresses = await tx.select({ id: customerAddresses.id }).from(customerAddresses).where(eq(customerAddresses.userId, ctx.user.id)).limit(20);
+        if (existingAddresses.length >= 20) throw new TRPCError({ code: "BAD_REQUEST", message: "You can save up to 20 delivery addresses." });
+      }
+      if (id) {
+        await tx.update(customerAddresses).set(values).where(and(eq(customerAddresses.id, id), eq(customerAddresses.userId, ctx.user.id)));
+        return { id };
+      }
+      const [{ id: createdId }] = await tx.insert(customerAddresses).values({ ...values, userId: ctx.user.id }).$returningId();
+      return { id: createdId };
+    });
+  }),
+  deleteAddress: authedQuery.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    await getDb().delete(customerAddresses).where(and(eq(customerAddresses.id, input.id), eq(customerAddresses.userId, ctx.user.id)));
+    return { ok: true };
+  }),
+  setDefaultAddress: authedQuery.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    const db = getDb();
+    await db.transaction(async (tx) => {
+      await tx.update(customerAddresses).set({ isDefault: false }).where(eq(customerAddresses.userId, ctx.user.id));
+      await tx.update(customerAddresses).set({ isDefault: true }).where(and(eq(customerAddresses.id, input.id), eq(customerAddresses.userId, ctx.user.id)));
+    });
+    return { ok: true };
+  }),
+  productReviews: publicQuery.input(z.object({ slug: z.string().trim().min(1).max(160) })).query(async ({ input }) => {
+    const [product] = await getDb().select({ id: products.id }).from(products).where(and(eq(products.slug, input.slug), eq(products.active, true))).limit(1);
+    if (!product) return { average: 0, count: 0, reviews: [] };
+    const reviews = await getDb().select({ id: productReviews.id, rating: productReviews.rating, title: productReviews.title, body: productReviews.body, createdAt: productReviews.createdAt, customerName: users.name }).from(productReviews).innerJoin(users, eq(productReviews.userId, users.id)).where(and(eq(productReviews.productId, product.id), eq(productReviews.status, "approved"))).orderBy(desc(productReviews.createdAt)).limit(50);
+    return { average: reviews.length ? Number((reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)) : 0, count: reviews.length, reviews };
+  }),
+  submitReview: authedQuery.input(z.object({ slug: z.string().trim().min(1).max(160), orderNumber: z.string().trim().min(5).max(40), rating: z.number().int().min(1).max(5), title: z.string().trim().min(3).max(120), body: z.string().trim().min(10).max(2000) })).mutation(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "review-submit", 5, 60 * 60_000);
+    const db = getDb();
+    const [product] = await db.select({ id: products.id }).from(products).where(and(eq(products.slug, input.slug), eq(products.active, true))).limit(1);
+    if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found." });
+    const [order] = await db.select({ id: orders.id }).from(orders).innerJoin(orderItems, eq(orderItems.orderId, orders.id)).where(and(eq(orders.orderNumber, input.orderNumber.toUpperCase()), eq(orders.customerUserId, ctx.user.id), eq(orders.status, "delivered"), eq(orderItems.productId, product.id))).limit(1);
+    if (!order) throw new TRPCError({ code: "FORBIDDEN", message: "Only customers with a delivered order can review this fragrance." });
+    const [existing] = await db.select({ id: productReviews.id }).from(productReviews).where(and(eq(productReviews.productId, product.id), eq(productReviews.userId, ctx.user.id))).limit(1);
+    if (existing) throw new TRPCError({ code: "CONFLICT", message: "You have already reviewed this fragrance." });
+    await db.insert(productReviews).values({ productId: product.id, userId: ctx.user.id, orderId: order.id, rating: input.rating, title: input.title, body: input.body, status: "pending" });
+    return { ok: true, message: "Your review was submitted and is awaiting moderation." };
+  }),
+  validateCoupon: publicQuery.input(z.object({ code: z.string().trim().min(2).max(40), subtotal: z.number().int().positive() })).query(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "coupon-validate", 20, 10 * 60_000);
+    const code = input.code.toUpperCase();
+    const [coupon] = await getDb().select().from(coupons).where(and(eq(coupons.code, code), eq(coupons.active, true))).limit(1);
+    const now = Date.now();
+    if (!coupon || (coupon.startsAt && coupon.startsAt.getTime() > now) || (coupon.expiresAt && coupon.expiresAt.getTime() < now) || (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) || input.subtotal < coupon.minSubtotal) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon is invalid, expired, or does not meet its minimum order value." });
+    }
+    const raw = coupon.discountType === "percent" ? Math.floor(input.subtotal * coupon.discountValue / 100) : coupon.discountValue;
+    const discount = Math.min(input.subtotal, coupon.maxDiscount === null ? raw : Math.min(raw, coupon.maxDiscount));
+    if (discount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon cannot be applied to this order." });
+    return { code: coupon.code, discount, subtotal: input.subtotal };
+  }),
+
   catalog: publicQuery.input(z.object({
-    q: z.string().optional(), category: z.enum(["decant", "intact"]).optional(),
+    q: z.string().trim().max(120).optional(), category: z.enum(["decant", "intact"]).optional(),
     size: z.number().int().optional(), maxPrice: z.number().int().optional(),
     offer: z.boolean().optional(), bestSeller: z.boolean().optional(),
     sort: z.enum(["featured", "price-asc", "price-desc", "popular", "new"]).default("featured"),
@@ -87,7 +165,7 @@ export const storeRouter = createRouter({
     return entries;
   }),
 
-  product: publicQuery.input(z.object({ slug: z.string().min(1) })).query(async ({ input }) => {
+  product: publicQuery.input(z.object({ slug: z.string().trim().min(1).max(160) })).query(async ({ input }) => {
     const entries = await listCatalog();
     const entry = entries.find(({ product }) => product.slug === input.slug);
     if (!entry) throw new TRPCError({ code: "NOT_FOUND", message: "This fragrance is no longer available." });
@@ -96,13 +174,15 @@ export const storeRouter = createRouter({
   }),
 
   settings: publicQuery.query(async () => {
-    const rows = await getDb().select().from(websiteSettings);
-    return Object.fromEntries(rows.map((row) => [row.settingKey, row.settingValue]));
+    // Never expose arbitrary settings through the public storefront API.
+    const publicKeys = ["announcement", "contactEmail", "contactPhone", "footerText", "heroTitle", "heroText"];
+    const rows = await getDb().select({ settingKey: websiteSettings.settingKey, settingValue: websiteSettings.settingValue }).from(websiteSettings);
+    return Object.fromEntries(rows.filter((row) => publicKeys.includes(row.settingKey)).map((row) => [row.settingKey, row.settingValue]));
   }),
 
   zones: publicQuery.query(() => getDb().select().from(deliveryZones).where(eq(deliveryZones.active, true)).orderBy(asc(deliveryZones.fee))),
 
-  cart: publicQuery.input(z.object({ token: tokenSchema }).optional()).query(({ input }) => readCart(input?.token)),
+  cart: publicQuery.input(z.object({ token: tokenSchema }).optional()).query(({ input, ctx }) => { rateLimit(ctx.req, "cart-read", 180, 60_000); return readCart(input?.token); }),
 
   addToCart: publicQuery.input(z.object({ token: tokenSchema, variantId: z.number().int().positive(), quantity: z.number().int().min(1).max(10).default(1) })).mutation(async ({ input, ctx }) => {
     rateLimit(ctx.req, "cart", 120, 60_000);
@@ -118,7 +198,8 @@ export const storeRouter = createRouter({
     return readCart(cart.token);
   }),
 
-  updateCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive(), quantity: z.number().int().min(1).max(10) })).mutation(async ({ input }) => {
+  updateCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive(), quantity: z.number().int().min(1).max(10) })).mutation(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "cart-write", 120, 60_000);
     const db = getDb();
     const [row] = await db.select({ item: cartItems, stock: productVariants.stock }).from(cartItems).innerJoin(productVariants, eq(cartItems.variantId, productVariants.id)).innerJoin(carts, eq(cartItems.cartId, carts.id)).where(and(eq(cartItems.id, input.itemId), eq(carts.token, input.token))).limit(1);
     if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Cart item not found." });
@@ -127,20 +208,29 @@ export const storeRouter = createRouter({
     return readCart(input.token);
   }),
 
-  removeCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive() })).mutation(async ({ input }) => {
+  removeCartItem: publicQuery.input(z.object({ token: z.string().uuid(), itemId: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "cart-write", 120, 60_000);
     const db = getDb();
     const [cart] = await db.select().from(carts).where(eq(carts.token, input.token)).limit(1);
     if (cart) await db.delete(cartItems).where(and(eq(cartItems.id, input.itemId), eq(cartItems.cartId, cart.id)));
     return readCart(input.token);
   }),
 
+  myOrders: authedQuery.query(async ({ ctx }) => {
+    const db = getDb();
+    const rows = await db.select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt, phone: orders.phone }).from(orders).where(eq(orders.customerUserId, ctx.user.id)).orderBy(desc(orders.createdAt)).limit(50);
+    if (!rows.length) return [];
+    const items = await db.select({ orderId: orderItems.orderId, productName: orderItems.productName, sizeMl: orderItems.sizeMl, quantity: orderItems.quantity, lineTotal: orderItems.lineTotal }).from(orderItems).where(inArray(orderItems.orderId, rows.map((row) => row.id)));
+    return rows.map((order) => ({ ...order, items: items.filter((item) => item.orderId === order.id) }));
+  }),
+
   checkout: publicQuery.input(z.object({
     token: z.string().uuid(), idempotencyKey: z.string().uuid(),
     customerName: z.string().trim().min(2).max(180), phone: phoneSchema,
-    email: z.union([z.literal(""), z.string().email()]).optional(),
+    email: z.union([z.literal(""), z.string().email().max(320)]).optional(),
     district: z.string().trim().min(2).max(120), area: z.string().trim().min(2).max(160),
-    address: z.string().trim().min(8), instructions: z.string().max(1000).optional(),
-    deliveryZoneId: z.number().int().positive(),
+    address: z.string().trim().min(8).max(1200), instructions: z.string().max(1000).optional(),
+    deliveryZoneId: z.number().int().positive(), couponCode: z.string().trim().max(40).optional(),
   })).mutation(async ({ input, ctx }) => {
     rateLimit(ctx.req, "checkout", 8, 10 * 60_000);
     const db = getDb();
@@ -151,7 +241,7 @@ export const storeRouter = createRouter({
     if (!currentItems.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart is empty." });
     const [zone] = await db.select().from(deliveryZones).where(and(eq(deliveryZones.id, input.deliveryZoneId), eq(deliveryZones.active, true))).limit(1);
     if (!zone) throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid delivery zone." });
-    const orderNumber = `DQ-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomUUID().slice(0, 6).toUpperCase()}`;
+    const orderNumber = `DQ-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
     const orderId = await db.transaction(async (tx) => {
       const lines = [];
       for (const item of currentItems) {
@@ -161,11 +251,25 @@ export const storeRouter = createRouter({
         await tx.update(productVariants).set({ stock: row.variant.stock - item.quantity }).where(eq(productVariants.id, row.variant.id));
       }
       const subtotal = lines.reduce((sum, line) => sum + line.variant.price * line.item.quantity, 0);
+      let couponCode: string | null = null;
+      let discountAmount = 0;
+      if (input.couponCode) {
+        const [coupon] = await tx.select().from(coupons).where(eq(coupons.code, input.couponCode.toUpperCase())).for("update").limit(1);
+        const now = Date.now();
+        if (!coupon || !coupon.active || (coupon.startsAt && coupon.startsAt.getTime() > now) || (coupon.expiresAt && coupon.expiresAt.getTime() < now) || (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) || subtotal < coupon.minSubtotal) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon is invalid, expired, or no longer available." });
+        }
+        const rawDiscount = coupon.discountType === "percent" ? Math.floor(subtotal * coupon.discountValue / 100) : coupon.discountValue;
+        discountAmount = Math.min(subtotal, coupon.maxDiscount === null ? rawDiscount : Math.min(rawDiscount, coupon.maxDiscount));
+        if (discountAmount <= 0) throw new TRPCError({ code: "BAD_REQUEST", message: "This coupon cannot be applied to this order." });
+        couponCode = coupon.code;
+        await tx.update(coupons).set({ usageCount: coupon.usageCount + 1 }).where(eq(coupons.id, coupon.id));
+      }
       const [{ id }] = await tx.insert(orders).values({
-        orderNumber, idempotencyKey: input.idempotencyKey, customerName: input.customerName,
+        orderNumber, idempotencyKey: input.idempotencyKey, customerUserId: ctx.user?.id ?? null, customerName: input.customerName,
         phone: input.phone, email: input.email || null, district: input.district, area: input.area,
         address: input.address, instructions: input.instructions || null, deliveryZoneId: zone.id,
-        subtotal, deliveryFee: zone.fee, total: subtotal + zone.fee,
+        subtotal, deliveryFee: zone.fee, discountAmount, couponCode, total: subtotal + zone.fee - discountAmount,
       }).$returningId();
       await tx.insert(orderItems).values(lines.map((line) => ({
         orderId: id, productId: line.product.id, variantId: line.variant.id,
@@ -181,14 +285,22 @@ export const storeRouter = createRouter({
     return { orderNumber: order.orderNumber, total: order.total };
   }),
 
-  orderSuccess: publicQuery.input(z.object({ orderNumber: z.string().min(5), phone: phoneSchema })).query(async ({ input }) => {
-    const [order] = await getDb().select().from(orders).where(and(eq(orders.orderNumber, input.orderNumber), eq(orders.phone, input.phone))).limit(1);
+  orderSuccess: publicQuery.input(z.object({ orderNumber: z.string().trim().min(5).max(40), phone: phoneSchema })).query(async ({ input, ctx }) => {
+    rateLimit(ctx.req, "order-lookup", 8, 10 * 60_000);
+    const [order] = await getDb().select({
+      id: orders.id, orderNumber: orders.orderNumber, status: orders.status, total: orders.total,
+      deliveryFee: orders.deliveryFee, customerName: orders.customerName, address: orders.address,
+      area: orders.area, district: orders.district, phone: orders.phone,
+    }).from(orders).where(and(eq(orders.orderNumber, input.orderNumber.toUpperCase()), eq(orders.phone, input.phone))).limit(1);
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "We could not find an order with those details." });
-    const items = await getDb().select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const items = await getDb().select({
+      id: orderItems.id, productName: orderItems.productName, sizeMl: orderItems.sizeMl,
+      quantity: orderItems.quantity, lineTotal: orderItems.lineTotal,
+    }).from(orderItems).where(eq(orderItems.orderId, order.id));
     return { order, items };
   }),
 
-  track: publicQuery.input(z.object({ orderNumber: z.string().trim().min(5), phone: phoneSchema })).query(async ({ input, ctx }) => {
+  track: publicQuery.input(z.object({ orderNumber: z.string().trim().min(5).max(40), phone: phoneSchema })).query(async ({ input, ctx }) => {
     rateLimit(ctx.req, "tracking", 30, 10 * 60_000);
     const [order] = await getDb().select({ orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt }).from(orders).where(and(eq(orders.orderNumber, input.orderNumber.toUpperCase()), eq(orders.phone, input.phone))).limit(1);
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "No matching order. Check your order ID and phone number." });

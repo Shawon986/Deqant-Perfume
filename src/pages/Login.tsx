@@ -6,6 +6,7 @@ import { createUserWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerifi
 import { firebaseAuth, firebaseReady, googleProvider } from "@/lib/firebase";
 import { Logo } from "@/components/Storefront";
 import { syncCustomerProfile } from "@/lib/profile-sync";
+import { trpc } from "@/providers/trpc";
 
 export default function Login() {
   const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
@@ -14,6 +15,13 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
+
+  async function continueToAccount() {
+    await utils.auth.me.invalidate();
+    const profile = await utils.auth.me.fetch().catch(() => null);
+    navigate(profile?.role === "admin" ? "/admin" : "/account", { replace: true });
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,7 +48,7 @@ export default function Login() {
         }
         await credential.user.getIdToken(true);
         try { await syncCustomerProfile(credential.user); } catch (profileError) { console.warn("Supabase profile sync is not ready:", profileError); }
-        navigate("/admin");
+        await continueToAccount();
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Authentication failed.");
@@ -50,7 +58,7 @@ export default function Login() {
   async function googleSignIn() {
     if (!firebaseAuth) return toast.error("Authentication is not configured yet.");
     setBusy(true);
-    try { const credential = await signInWithPopup(firebaseAuth, googleProvider); await credential.user.getIdToken(true); try { await syncCustomerProfile(credential.user); } catch (profileError) { console.warn("Supabase profile sync is not ready:", profileError); } navigate("/admin"); }
+    try { const credential = await signInWithPopup(firebaseAuth, googleProvider); await credential.user.getIdToken(true); try { await syncCustomerProfile(credential.user); } catch (profileError) { console.warn("Supabase profile sync is not ready:", profileError); } await continueToAccount(); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Google sign-in failed."); }
     finally { setBusy(false); }
   }

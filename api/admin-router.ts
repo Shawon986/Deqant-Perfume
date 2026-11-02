@@ -1,6 +1,6 @@
-import { asc, desc, eq, like, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, like, ne, or, sum } from "drizzle-orm";
 import { z } from "zod";
-import { contactMessages, deliveryZones, emailLogs, orderItems, orders, productImages, products, productVariants, websiteSettings } from "@db/schema";
+import { contactMessages, coupons, deliveryZones, emailLogs, orderItems, orders, productImages, productReviews, products, productVariants, users, websiteSettings } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { adminQuery, createRouter } from "./middleware";
 import { sendOrderNotifications } from "./email";
@@ -11,8 +11,8 @@ const variantInput = z.object({ sizeMl: z.number().int().positive(), price: z.nu
 const productInput = z.object({
   name: z.string().trim().min(2).max(180), slug: z.string().trim().min(2).max(160).regex(/^[a-z0-9-]+$/),
   brand: z.string().trim().min(2).max(120), category: z.enum(["decant", "intact"]),
-  description: z.string().trim().min(20), notes: z.string().trim().min(3), family: z.string().trim().min(2),
-  imageUrl: z.string().trim(), imageKey: z.string().max(600).optional().nullable(), bestSeller: z.boolean(), specialOffer: z.boolean(), featured: z.boolean(),
+  description: z.string().trim().min(20).max(10000), notes: z.string().trim().min(3).max(1200), family: z.string().trim().min(2),
+  imageUrl: z.string().trim().max(2000).refine((value) => value === "" || value.startsWith("/") || /^https:\/\//i.test(value), "Use a local path or HTTPS image URL"), imageKey: z.string().max(600).optional().nullable(), bestSeller: z.boolean(), specialOffer: z.boolean(), featured: z.boolean(),
   variants: z.array(variantInput).min(1).max(8),
 }).refine((data) => Boolean(data.imageUrl || data.imageKey), { message: "Add an image or image URL", path: ["imageUrl"] })
   .refine((data) => data.variants.every((v) => v.price <= v.originalPrice), { message: "Discounted price cannot exceed regular price", path: ["variants"] })
@@ -32,6 +32,27 @@ async function adminProducts() {
 }
 
 export const adminRouter = createRouter({
+
+  coupons: adminQuery.query(async () => getDb().select().from(coupons).orderBy(desc(coupons.createdAt)).limit(200)),
+  saveCoupon: adminQuery.input(z.object({
+    id: z.number().int().positive().optional(), code: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/),
+    discountType: z.enum(["percent", "fixed"]), discountValue: z.number().int().positive().max(100000),
+    minSubtotal: z.number().int().nonnegative().max(10000000), maxDiscount: z.number().int().positive().max(10000000).nullable().optional(),
+    usageLimit: z.number().int().positive().max(1000000).nullable().optional(), expiresAt: z.date().nullable().optional(), active: z.boolean(),
+  })).mutation(async ({ input }) => {
+    if (input.discountType === "percent" && input.discountValue > 100) throw new Error("Percentage discount cannot exceed 100.");
+    const { id, ...values } = input;
+    const normalized = { ...values, code: values.code.toUpperCase(), maxDiscount: values.maxDiscount ?? null, usageLimit: values.usageLimit ?? null };
+    if (id) await getDb().update(coupons).set(normalized).where(eq(coupons.id, id));
+    else await getDb().insert(coupons).values(normalized);
+    return { ok: true };
+  }),
+  moderateReview: adminQuery.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]) })).mutation(async ({ input }) => {
+    await getDb().update(productReviews).set({ status: input.status }).where(eq(productReviews.id, input.id));
+    return { ok: true };
+  }),
+  reviews: adminQuery.query(async () => getDb().select({ review: productReviews, productName: products.name, customerName: users.name }).from(productReviews).innerJoin(products, eq(productReviews.productId, products.id)).innerJoin(users, eq(productReviews.userId, users.id)).orderBy(desc(productReviews.createdAt)).limit(200)),
+
   overview: adminQuery.query(async () => {
     const db = getDb();
     const allOrders = await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(500);
@@ -52,7 +73,18 @@ export const adminRouter = createRouter({
     };
   }),
 
-  orders: adminQuery.input(z.object({ q: z.string().optional() }).optional()).query(async ({ input }) => {
+  customers: adminQuery.query(async () => {
+    const db = getDb();
+    const [customerRows, orderRows] = await Promise.all([
+      db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignInAt: users.lastSignInAt }).from(users).where(eq(users.role, "user")).orderBy(desc(users.lastSignInAt)).limit(200),
+      db.select({ customerUserId: orders.customerUserId, count: count(), value: sum(orders.total) }).from(orders).where(and(isNotNull(orders.customerUserId), ne(orders.status, "cancelled"))).groupBy(orders.customerUserId),
+    ]);
+    const stats = new Map<number, { count: number; value: number }>();
+    for (const order of orderRows) if (order.customerUserId !== null) stats.set(order.customerUserId, { count: Number(order.count), value: Number(order.value ?? 0) });
+    return customerRows.map((customer) => ({ ...customer, ...(stats.get(customer.id) ?? { count: 0, value: 0 }) }));
+  }),
+
+  orders: adminQuery.input(z.object({ q: z.string().trim().max(120).optional() }).optional()).query(async ({ input }) => {
     const db = getDb();
     const q = input?.q?.trim();
     const rows = q ? await db.select().from(orders).where(or(like(orders.orderNumber, `%${q}%`), like(orders.phone, `%${q}%`), like(orders.customerName, `%${q}%`))).orderBy(desc(orders.createdAt)).limit(100) : await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(100);
