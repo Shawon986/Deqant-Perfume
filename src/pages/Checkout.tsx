@@ -5,6 +5,7 @@ import { ErrorState, LoadingState, PageShell } from "@/components/Storefront";
 import { money } from "@/lib/format";
 import { useCart } from "@/providers/cart";
 import { trpc } from "@/providers/trpc";
+import { useAuth } from "@/hooks/useAuth";
 
 const initialForm = { customerName: "", phone: "", email: "", district: "", area: "", address: "", instructions: "" };
 
@@ -13,29 +14,48 @@ export default function Checkout() {
   const { data: zones } = trpc.store.zones.useQuery();
   const [form, setForm] = useState(initialForm);
   const [zoneId, setZoneId] = useState<number>();
+  const [couponInput, setCouponInput] = useState("");
+  const [couponRequested, setCouponRequested] = useState(false);
+  const [saveAddressAfterOrder, setSaveAddressAfterOrder] = useState(true);
+  const { user } = useAuth();
+  const addresses = trpc.store.addresses.useQuery(undefined, { enabled: Boolean(user) });
+  const coupon = trpc.store.validateCoupon.useQuery({ code: couponInput, subtotal: cart?.subtotal ?? 0 }, { enabled: couponRequested && couponInput.trim().length >= 2 && (cart?.subtotal ?? 0) > 0, retry: false });
+  const saveAddress = trpc.store.saveAddress.useMutation();
   const idempotencyKey = useRef(crypto.randomUUID());
   const navigate = useNavigate();
   const utils = trpc.useUtils();
   const checkout = trpc.store.checkout.useMutation({
-    onSuccess: async (result) => { await utils.store.cart.invalidate(); navigate(`/order/${result.orderNumber}`, { state: { phone: form.phone, total: result.total } }); },
+    onSuccess: async (result) => {
+      if (user && saveAddressAfterOrder) {
+        try {
+          await saveAddress.mutateAsync({ label: "Home", ...form, isDefault: (addresses.data?.length ?? 0) === 0 });
+          await utils.store.addresses.invalidate();
+        } catch { /* The order is already placed; address saving is optional. */ }
+      }
+      await utils.store.cart.invalidate();
+      navigate(`/order/${result.orderNumber}`, { state: { phone: form.phone, total: result.total } });
+    },
   });
   const zone = zones?.find((item) => item.id === zoneId);
-  const total = (cart?.subtotal ?? 0) + (zone?.fee ?? 0);
+  const discount = coupon.data?.discount ?? 0;
+  const total = (cart?.subtotal ?? 0) + (zone?.fee ?? 0) - discount;
   const update = (key: keyof typeof initialForm, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!token || !zoneId) return;
-    checkout.mutate({ ...form, token, deliveryZoneId: zoneId, idempotencyKey: idempotencyKey.current });
+    checkout.mutate({ ...form, token, deliveryZoneId: zoneId, couponCode: coupon.data?.code, idempotencyKey: idempotencyKey.current });
   };
   return <PageShell>
     <section className="checkout-page"><Link className="text-link" to="/cart"><ArrowLeft /> Back to bag</Link><div className="checkout-heading"><p>SECURE CHECKOUT</p><h1>Where shall we<br /><em>send your scent?</em></h1><span><LockKeyhole /> Cash on delivery. No online payment required.</span></div>
       {isLoading ? <LoadingState /> : !cart?.items.length ? <div className="empty-state"><h2>Your bag is empty.</h2><p>Add a fragrance before continuing to checkout.</p><Link className="button button-burgundy" to="/shop">Explore collection</Link></div> : <form className="checkout-layout" onSubmit={submit}>
         <div className="checkout-form">
           <fieldset><legend><span>01</span> Your details</legend><div className="form-grid"><label>Full name<input required minLength={2} autoComplete="name" value={form.customerName} onChange={(e) => update("customerName", e.target.value)} placeholder="Your full name" /></label><label>Mobile number<input required minLength={11} autoComplete="tel" inputMode="tel" value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="01XXXXXXXXX" /></label><label className="full-field">Email <small>Optional, for your confirmation</small><input type="email" autoComplete="email" value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@example.com" /></label></div></fieldset>
+          {user && addresses.data && addresses.data.length > 0 && <div className="saved-addresses"><strong>Use a saved address</strong>{addresses.data.map((address) => <button type="button" key={address.id} onClick={() => { setForm({ customerName: address.recipientName, phone: address.phone, email: form.email, district: address.district, area: address.area, address: address.address, instructions: address.instructions ?? "" }); }}>{address.label}{address.isDefault ? " · Default" : ""} — {address.area}, {address.district}</button>)}</div>}
           <fieldset><legend><span>02</span> Delivery address</legend><div className="form-grid"><label>District<input required minLength={2} autoComplete="address-level1" value={form.district} onChange={(e) => update("district", e.target.value)} placeholder="Dhaka" /></label><label>City / area<input required minLength={2} autoComplete="address-level2" value={form.area} onChange={(e) => update("area", e.target.value)} placeholder="Dhanmondi" /></label><label className="full-field">Full delivery address<textarea required minLength={8} autoComplete="street-address" rows={3} value={form.address} onChange={(e) => update("address", e.target.value)} placeholder="House, road, block and landmark" /></label><label className="full-field">Additional instructions <small>Optional</small><textarea rows={2} value={form.instructions} onChange={(e) => update("instructions", e.target.value)} placeholder="Anything our courier should know" /></label></div></fieldset>
+          {user && <label className="save-address-choice"><input type="checkbox" checked={saveAddressAfterOrder} onChange={(e) => setSaveAddressAfterOrder(e.target.checked)} /> Save this address to my DEQANT account after ordering</label>}
           <fieldset><legend><span>03</span> Delivery zone</legend><div className="zone-options">{zones?.map((item) => <label key={item.id} className={zoneId === item.id ? "selected" : ""}><input type="radio" name="zone" value={item.id} checked={zoneId === item.id} onChange={() => setZoneId(item.id)} required /><span><strong>{item.name}</strong><small>{item.districts}</small></span><b>{money(item.fee)}</b></label>)}</div></fieldset>
         </div>
-        <aside className="order-summary checkout-summary"><h2>Your order</h2>{cart.items.map((item) => <div className="checkout-item" key={item.id}><img src={item.product.imageUrl} alt="" /><span><strong>{item.product.name}</strong><small>{item.variant.sizeMl}ml × {item.quantity}</small></span><b>{money(item.lineTotal)}</b></div>)}<div><span>Subtotal</span><strong>{money(cart.subtotal)}</strong></div><div><span>Delivery</span><strong>{zone ? money(zone.fee) : "Select a zone"}</strong></div><div className="summary-total"><span>Total payable</span><strong>{zone ? money(total) : money(cart.subtotal)}</strong></div><div className="payment-method"><Check /><span><strong>Cash on delivery</strong><small>Pay when your order arrives.</small></span></div>{checkout.error && <p className="form-error" role="alert">{checkout.error.message}</p>}<button className="button button-burgundy" type="submit" disabled={!zoneId || checkout.isPending}>{checkout.isPending ? "Placing your order…" : "Place order — cash on delivery"}<ArrowRight /></button><p className="checkout-consent">By placing your order, you agree to our terms and delivery policy.</p></aside>
+        <aside className="order-summary checkout-summary"><h2>Your order</h2>{cart.items.map((item) => <div className="checkout-item" key={item.id}><img src={item.product.imageUrl} alt="" /><span><strong>{item.product.name}</strong><small>{item.variant.sizeMl}ml × {item.quantity}</small></span><b>{money(item.lineTotal)}</b></div>)}<div><span>Subtotal</span><strong>{money(cart.subtotal)}</strong></div><div><span>Delivery</span><strong>{zone ? money(zone.fee) : "Select a zone"}</strong></div><div className="coupon-entry"><label htmlFor="coupon-code">Discount code</label><div><input id="coupon-code" value={couponInput} onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponRequested(false); }} placeholder="Enter coupon code" maxLength={40} /><button type="button" onClick={() => setCouponRequested(true)} disabled={!couponInput.trim() || coupon.isFetching}>Apply</button></div>{coupon.isError && couponRequested && <small className="form-error">{coupon.error.message}</small>}{coupon.data && couponRequested && <small className="coupon-success">Coupon applied: save {money(discount)}</small>}</div><div><span>Discount</span><strong>−{money(discount)}</strong></div><div className="summary-total"><span>Total payable</span><strong>{zone ? money(total) : money((cart?.subtotal ?? 0) - discount)}</strong></div><div className="payment-method"><Check /><span><strong>Cash on delivery</strong><small>Pay when your order arrives.</small></span></div>{checkout.error && <p className="form-error" role="alert">{checkout.error.message}</p>}<button className="button button-burgundy" type="submit" disabled={!zoneId || checkout.isPending}>{checkout.isPending ? "Placing your order…" : "Place order — cash on delivery"}<ArrowRight /></button><p className="checkout-consent">By placing your order, you agree to our terms and delivery policy.</p></aside>
       </form>}
     </section>
   </PageShell>;
