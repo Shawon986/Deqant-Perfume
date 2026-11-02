@@ -19,6 +19,7 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
   }), [slugs]);
   return <WishlistContext.Provider value={value}>{children}</WishlistContext.Provider>;
 }
+// eslint-disable-next-line react-refresh/only-export-components
 export function useWishlist() {
   const value = useContext(WishlistContext);
   if (!value) throw new Error("useWishlist must be used within WishlistProvider");
