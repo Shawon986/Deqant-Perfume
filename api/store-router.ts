@@ -70,7 +70,7 @@ async function listCatalog() {
 
 export const storeRouter = createRouter({
   catalog: publicQuery.input(z.object({
-    q: z.string().optional(), category: z.enum(["decant", "intact"]).optional(),
+    q: z.string().trim().max(120).optional(), category: z.enum(["decant", "intact"]).optional(),
     size: z.number().int().optional(), maxPrice: z.number().int().optional(),
     offer: z.boolean().optional(), bestSeller: z.boolean().optional(),
     sort: z.enum(["featured", "price-asc", "price-desc", "popular", "new"]).default("featured"),
@@ -94,7 +94,7 @@ export const storeRouter = createRouter({
     return entries;
   }),
 
-  product: publicQuery.input(z.object({ slug: z.string().min(1) })).query(async ({ input }) => {
+  product: publicQuery.input(z.object({ slug: z.string().trim().min(1).max(160) })).query(async ({ input }) => {
     const entries = await listCatalog();
     const entry = entries.find(({ product }) => product.slug === input.slug);
     if (!entry) throw new TRPCError({ code: "NOT_FOUND", message: "This fragrance is no longer available." });
@@ -156,9 +156,9 @@ export const storeRouter = createRouter({
   checkout: publicQuery.input(z.object({
     token: z.string().uuid(), idempotencyKey: z.string().uuid(),
     customerName: z.string().trim().min(2).max(180), phone: phoneSchema,
-    email: z.union([z.literal(""), z.string().email()]).optional(),
+    email: z.union([z.literal(""), z.string().email().max(320)]).optional(),
     district: z.string().trim().min(2).max(120), area: z.string().trim().min(2).max(160),
-    address: z.string().trim().min(8), instructions: z.string().max(1000).optional(),
+    address: z.string().trim().min(8).max(1200), instructions: z.string().max(1000).optional(),
     deliveryZoneId: z.number().int().positive(),
   })).mutation(async ({ input, ctx }) => {
     rateLimit(ctx.req, "checkout", 8, 10 * 60_000);
@@ -215,7 +215,7 @@ export const storeRouter = createRouter({
     return { order, items };
   }),
 
-  track: publicQuery.input(z.object({ orderNumber: z.string().trim().min(5), phone: phoneSchema })).query(async ({ input, ctx }) => {
+  track: publicQuery.input(z.object({ orderNumber: z.string().trim().min(5).max(40), phone: phoneSchema })).query(async ({ input, ctx }) => {
     rateLimit(ctx.req, "tracking", 30, 10 * 60_000);
     const [order] = await getDb().select({ orderNumber: orders.orderNumber, status: orders.status, total: orders.total, createdAt: orders.createdAt }).from(orders).where(and(eq(orders.orderNumber, input.orderNumber.toUpperCase()), eq(orders.phone, input.phone))).limit(1);
     if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "No matching order. Check your order ID and phone number." });
