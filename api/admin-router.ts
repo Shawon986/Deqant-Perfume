@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, isNotNull, like, ne, or, sum } from "drizzle-orm";
 import { z } from "zod";
-import { contactMessages, deliveryZones, emailLogs, orderItems, orders, productImages, products, productVariants, users, websiteSettings } from "@db/schema";
+import { contactMessages, coupons, deliveryZones, emailLogs, orderItems, orders, productImages, productReviews, products, productVariants, users, websiteSettings } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { adminQuery, createRouter } from "./middleware";
 import { sendOrderNotifications } from "./email";
@@ -32,6 +32,27 @@ async function adminProducts() {
 }
 
 export const adminRouter = createRouter({
+
+  coupons: adminQuery.query(async () => getDb().select().from(coupons).orderBy(desc(coupons.createdAt)).limit(200)),
+  saveCoupon: adminQuery.input(z.object({
+    id: z.number().int().positive().optional(), code: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9_-]+$/),
+    discountType: z.enum(["percent", "fixed"]), discountValue: z.number().int().positive().max(100000),
+    minSubtotal: z.number().int().nonnegative().max(10000000), maxDiscount: z.number().int().positive().max(10000000).nullable().optional(),
+    usageLimit: z.number().int().positive().max(1000000).nullable().optional(), expiresAt: z.date().nullable().optional(), active: z.boolean(),
+  })).mutation(async ({ input }) => {
+    if (input.discountType === "percent" && input.discountValue > 100) throw new Error("Percentage discount cannot exceed 100.");
+    const { id, ...values } = input;
+    const normalized = { ...values, code: values.code.toUpperCase(), maxDiscount: values.maxDiscount ?? null, usageLimit: values.usageLimit ?? null };
+    if (id) await getDb().update(coupons).set(normalized).where(eq(coupons.id, id));
+    else await getDb().insert(coupons).values(normalized);
+    return { ok: true };
+  }),
+  moderateReview: adminQuery.input(z.object({ id: z.number().int().positive(), status: z.enum(["approved", "rejected"]) })).mutation(async ({ input }) => {
+    await getDb().update(productReviews).set({ status: input.status }).where(eq(productReviews.id, input.id));
+    return { ok: true };
+  }),
+  reviews: adminQuery.query(async () => getDb().select({ review: productReviews, productName: products.name, customerName: users.name }).from(productReviews).innerJoin(products, eq(productReviews.productId, products.id)).innerJoin(users, eq(productReviews.userId, users.id)).orderBy(desc(productReviews.createdAt)).limit(200)),
+
   overview: adminQuery.query(async () => {
     const db = getDb();
     const allOrders = await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(500);
