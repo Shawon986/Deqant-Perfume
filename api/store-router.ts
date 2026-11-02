@@ -114,12 +114,12 @@ export const storeRouter = createRouter({
     const reviews = await getDb().select({ id: productReviews.id, rating: productReviews.rating, title: productReviews.title, body: productReviews.body, createdAt: productReviews.createdAt, customerName: users.name }).from(productReviews).innerJoin(users, eq(productReviews.userId, users.id)).where(and(eq(productReviews.productId, product.id), eq(productReviews.status, "approved"))).orderBy(desc(productReviews.createdAt)).limit(50);
     return { average: reviews.length ? Number((reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)) : 0, count: reviews.length, reviews };
   }),
-  submitReview: authedQuery.input(z.object({ slug: z.string().trim().min(1).max(160), orderId: z.number().int().positive(), rating: z.number().int().min(1).max(5), title: z.string().trim().min(3).max(120), body: z.string().trim().min(10).max(2000) })).mutation(async ({ input, ctx }) => {
+  submitReview: authedQuery.input(z.object({ slug: z.string().trim().min(1).max(160), orderNumber: z.string().trim().min(5).max(40), rating: z.number().int().min(1).max(5), title: z.string().trim().min(3).max(120), body: z.string().trim().min(10).max(2000) })).mutation(async ({ input, ctx }) => {
     rateLimit(ctx.req, "review-submit", 5, 60 * 60_000);
     const db = getDb();
     const [product] = await db.select({ id: products.id }).from(products).where(and(eq(products.slug, input.slug), eq(products.active, true))).limit(1);
     if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found." });
-    const [order] = await db.select({ id: orders.id }).from(orders).innerJoin(orderItems, eq(orderItems.orderId, orders.id)).where(and(eq(orders.id, input.orderId), eq(orders.customerUserId, ctx.user.id), eq(orders.status, "delivered"), eq(orderItems.productId, product.id))).limit(1);
+    const [order] = await db.select({ id: orders.id }).from(orders).innerJoin(orderItems, eq(orderItems.orderId, orders.id)).where(and(eq(orders.orderNumber, input.orderNumber.toUpperCase()), eq(orders.customerUserId, ctx.user.id), eq(orders.status, "delivered"), eq(orderItems.productId, product.id))).limit(1);
     if (!order) throw new TRPCError({ code: "FORBIDDEN", message: "Only customers with a delivered order can review this fragrance." });
     const [existing] = await db.select({ id: productReviews.id }).from(productReviews).where(and(eq(productReviews.productId, product.id), eq(productReviews.userId, ctx.user.id))).limit(1);
     if (existing) throw new TRPCError({ code: "CONFLICT", message: "You have already reviewed this fragrance." });
