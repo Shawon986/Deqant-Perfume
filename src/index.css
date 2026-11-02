@@ -131,3 +131,32 @@ h1,h2,h3,p{margin-top:0}h1,h2,h3{font-family:var(--serif);font-weight:300;line-h
 
 .admin-customers{display:grid;gap:10px}.admin-customers>article{display:grid;grid-template-columns:42px 1fr;gap:12px;align-items:center;padding:16px;border:1px solid rgba(231,210,181,.14);border-radius:14px;background:linear-gradient(145deg,rgba(255,255,255,.09),rgba(255,255,255,.025));backdrop-filter:blur(18px)}.customer-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:50%;background:linear-gradient(145deg,#d3bd9e,#8a3154);color:#1c0610;font-weight:800}.admin-customers strong,.admin-customers small{display:block}.admin-customers strong{font-size:11px;color:#fff0df}.admin-customers small{font-size:9px;color:rgba(246,235,222,.58);margin-top:3px}.admin-customers>article>div:last-child{grid-column:2;display:flex;gap:6px;justify-content:space-between;flex-wrap:wrap}
 @media(min-width:640px){.admin-customers>article{grid-template-columns:42px minmax(220px,1fr) minmax(180px,.7fr)}.admin-customers>article>div:last-child{grid-column:auto;display:block;text-align:right}}
+
+
+/* Customer commerce additions */
+.coupon-entry,.saved-addresses,.account-address-form,.review-form,.admin-coupon-form{margin:1.25rem 0;padding:1.1rem;border:1px solid rgba(185,151,116,.28);border-radius:16px;background:rgba(255,255,255,.035)}
+.coupon-entry>div{display:flex;gap:.5rem;margin-top:.5rem}
+.coupon-entry input,.review-form input,.review-form textarea,.review-form select,.account-address-form input,.account-address-form textarea{width:100%;min-width:0;padding:.8rem;border:1px solid rgba(185,151,116,.35);border-radius:9px;background:rgba(255,255,255,.06);color:inherit}
+.coupon-entry button,.saved-addresses button{padding:.7rem 1rem;border:1px solid rgba(185,151,116,.45);border-radius:9px;background:rgba(185,151,116,.12);color:inherit}
+.coupon-success{display:block;color:#80c99b;margin-top:.45rem}
+.saved-addresses{display:grid;gap:.6rem}
+.saved-addresses button{text-align:left}
+.save-address-choice{display:flex;align-items:center;gap:.6rem;margin:1rem 0}
+.account-addresses .account-order-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.account-address-form .form-grid,.review-form{display:grid;gap:.85rem}
+.account-address-form .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.product-reviews{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:2rem;padding:4rem 0;border-top:1px solid rgba(185,151,116,.2)}
+.product-reviews .section-intro{grid-row:span 2}
+.review-list{display:grid;gap:1rem}
+.review-list article,.admin-review-row,.admin-coupon-list article{padding:1.2rem;border:1px solid rgba(185,151,116,.22);border-radius:14px;background:rgba(255,255,255,.035)}
+.review-list article>div{color:#c59b67;letter-spacing:.12em}
+.review-list article h3{margin:.45rem 0}
+.review-list article small,.admin-coupon-list small{display:block;opacity:.65;margin-top:.5rem}
+.review-form{align-self:start}
+.review-form label{display:grid;gap:.4rem}
+.admin-coupon-form .admin-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin:1rem 0}
+.admin-coupon-list{display:grid;gap:.7rem;margin-top:1.5rem}
+.admin-coupon-list article,.admin-review-row{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.admin-review-row{margin:.8rem 0;align-items:flex-start}
+.admin-review-row p{max-width:70ch}
+@media(max-width:760px){.product-reviews{grid-template-columns:1fr;padding:2.5rem 0}.product-reviews .section-intro{grid-row:auto}.account-address-form .form-grid,.admin-coupon-form .admin-form-grid{grid-template-columns:1fr}.admin-coupon-list article,.admin-review-row{align-items:flex-start;flex-direction:column}.coupon-entry>div{flex-direction:column}}
