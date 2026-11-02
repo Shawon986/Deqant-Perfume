@@ -28,7 +28,7 @@ export default function Checkout() {
     onSuccess: async (result) => {
       if (user && saveAddressAfterOrder) {
         try {
-          await saveAddress.mutateAsync({ label: "Home", ...form, isDefault: (addresses.data?.length ?? 0) === 0 });
+          await saveAddress.mutateAsync({ label: "Home", recipientName: form.customerName, phone: form.phone, district: form.district, area: form.area, address: form.address, instructions: form.instructions, isDefault: (addresses.data?.length ?? 0) === 0 });
           await utils.store.addresses.invalidate();
         } catch { /* The order is already placed; address saving is optional. */ }
       }
