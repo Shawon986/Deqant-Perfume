@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { ArrowRight, LogOut, PackageSearch, ShieldCheck, UserRound } from "lucide-react";
-import { LoadingState, money, PageShell } from "@/components/Storefront";
+import { LoadingState, PageShell } from "@/components/Storefront";
+import { money } from "@/lib/format";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
 
