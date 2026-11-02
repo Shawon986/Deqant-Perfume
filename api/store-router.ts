@@ -170,7 +170,7 @@ export const storeRouter = createRouter({
     if (!currentItems.length) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart is empty." });
     const [zone] = await db.select().from(deliveryZones).where(and(eq(deliveryZones.id, input.deliveryZoneId), eq(deliveryZones.active, true))).limit(1);
     if (!zone) throw new TRPCError({ code: "BAD_REQUEST", message: "Select a valid delivery zone." });
-    const orderNumber = `DQ-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomUUID().slice(0, 6).toUpperCase()}`;
+    const orderNumber = `DQ-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
     const orderId = await db.transaction(async (tx) => {
       const lines = [];
       for (const item of currentItems) {
