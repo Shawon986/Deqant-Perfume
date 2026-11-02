@@ -112,6 +112,8 @@ export const orders = mysqlTable("orders", {
   deliveryZoneId: bigint("deliveryZoneId", { mode: "number", unsigned: true }).notNull().references(() => deliveryZones.id),
   subtotal: int("subtotal").notNull(),
   deliveryFee: int("deliveryFee").notNull(),
+  discountAmount: int("discountAmount").default(0).notNull(),
+  couponCode: varchar("couponCode", { length: 40 }),
   total: int("total").notNull(),
   paymentMethod: mysqlEnum("paymentMethod", ["cod"]).default("cod").notNull(),
   status: mysqlEnum("status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"]).default("pending").notNull(),
