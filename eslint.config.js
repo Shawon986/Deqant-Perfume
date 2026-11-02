@@ -19,5 +19,11 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // This repo intentionally co-locates context hooks with their providers.
+      "react-refresh/only-export-components": "off",
+      // Legacy synchronization effects are reviewed separately; keep them visible as warnings.
+      "react-hooks/set-state-in-effect": "warn",
+    },
   },
 ])
