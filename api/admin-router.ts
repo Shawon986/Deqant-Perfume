@@ -1,6 +1,6 @@
-import { asc, desc, eq, like, or } from "drizzle-orm";
+import { asc, desc, eq, isNotNull, like, or } from "drizzle-orm";
 import { z } from "zod";
-import { contactMessages, deliveryZones, emailLogs, orderItems, orders, productImages, products, productVariants, websiteSettings } from "@db/schema";
+import { contactMessages, deliveryZones, emailLogs, orderItems, orders, productImages, products, productVariants, users, websiteSettings } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { adminQuery, createRouter } from "./middleware";
 import { sendOrderNotifications } from "./email";
@@ -50,6 +50,22 @@ export const adminRouter = createRouter({
       bestSellers: [...bestMap.values()].sort((a, b) => b.units - a.units).slice(0, 5),
       recentOrders: allOrders.slice(0, 6),
     };
+  }),
+
+  customers: adminQuery.query(async () => {
+    const db = getDb();
+    const [customerRows, orderRows] = await Promise.all([
+      db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignInAt: users.lastSignInAt }).from(users).where(eq(users.role, "user")).orderBy(desc(users.lastSignInAt)).limit(200),
+      db.select({ customerUserId: orders.customerUserId, total: orders.total, status: orders.status }).from(orders).where(isNotNull(orders.customerUserId)),
+    ]);
+    const stats = new Map<number, { count: number; value: number }>();
+    for (const order of orderRows) if (order.customerUserId !== null) {
+      const current = stats.get(order.customerUserId) ?? { count: 0, value: 0 };
+      current.count += 1;
+      if (order.status !== "cancelled") current.value += order.total;
+      stats.set(order.customerUserId, current);
+    }
+    return customerRows.map((customer) => ({ ...customer, ...(stats.get(customer.id) ?? { count: 0, value: 0 }) }));
   }),
 
   orders: adminQuery.input(z.object({ q: z.string().trim().max(120).optional() }).optional()).query(async ({ input }) => {
