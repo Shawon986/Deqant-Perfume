@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router";
-import { ArrowRight, Menu, Search, ShoppingBag, UserRound, X } from "lucide-react";
+import { ArrowRight, Heart, Menu, Search, ShoppingBag, UserRound, X } from "lucide-react";
+import { useWishlist } from "@/providers/wishlist";
 import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/providers/cart";
 import { trpc } from "@/providers/trpc";
@@ -29,6 +30,7 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const { cart } = useCart();
   const { user, isLoading: authLoading } = useAuth();
+  const wishlist = useWishlist();
   const location = useLocation();
   const { data: settings } = trpc.store.settings.useQuery();
   useEffect(() => setOpen(false), [location.pathname]);
@@ -47,6 +49,7 @@ export function Header() {
       </nav>
       <div className="header-actions">
         <Link className="icon-button desktop-only" to="/shop?focus=search" aria-label="Search perfumes"><Search size={19} /></Link>
+        <Link className="icon-button wishlist-header-link" to="/wishlist" aria-label={`Wishlist with ${wishlist.slugs.length} saved items`}><Heart size={19}/>{wishlist.slugs.length > 0 && <span>{wishlist.slugs.length}</span>}</Link>
         <Link className="icon-button cart-link" to="/cart" aria-label={`Shopping bag with ${cart?.count ?? 0} items`}><ShoppingBag size={20} /><span>{cart?.count ?? 0}</span></Link>
         <Link className="account-link" to={user?.role === "admin" ? "/admin" : user ? "/account" : "/login"} aria-label={user ? `Account: ${user.name || user.email}` : "Sign in or create an account"}><span className="account-avatar">{user?.name?.trim()?.charAt(0)?.toUpperCase() || (user ? <UserRound size={17}/> : <UserRound size={17}/>)}</span><span className="account-label">{authLoading ? "Account" : user?.name?.trim() || user?.email?.split("@")[0] || "Sign in"}</span></Link>
         <button className="icon-button mobile-menu-button" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open}><Menu size={22} /></button>
@@ -95,6 +98,8 @@ type ProductEntry = {
 
 export function ProductCard({ entry, index = 0 }: { entry: ProductEntry; index?: number }) {
   const { product, variants } = entry;
+  const wishlist = useWishlist();
+  const saved = wishlist.has(product.slug);
   const price = Math.min(...variants.map((variant) => variant.price));
   const original = variants.find((variant) => variant.price === price)?.originalPrice ?? price;
   return <article className={`product-card product-card-${index % 4}`}>
@@ -103,6 +108,7 @@ export function ProductCard({ entry, index = 0 }: { entry: ProductEntry; index?:
       <div className="product-badges">{product.bestSeller && <span>Best seller</span>}{original > price && <span>Private offer</span>}</div>
       <span className="product-view">Discover <ArrowRight size={16} /></span>
     </Link>
+    <button className={`wishlist-toggle ${saved ? "is-saved" : ""}`} onClick={() => wishlist.toggle(product.slug)} aria-label={saved ? `Remove ${product.name} from wishlist` : `Save ${product.name} to wishlist`} aria-pressed={saved}><Heart size={17} fill={saved ? "currentColor" : "none"}/></button>
     <div className="product-meta"><div><p>{product.brand} · {product.category === "decant" ? "Decant" : "Intact bottle"}</p><Link to={`/product/${product.slug}`}><h3>{product.name}</h3></Link><span>{product.family}</span></div><div className="product-price"><strong>{money(price)}</strong>{original > price && <del>{money(original)}</del>}<small>from {Math.min(...variants.map((v) => v.sizeMl))}ml</small></div></div>
   </article>;
 }
