@@ -11,7 +11,7 @@ const variantInput = z.object({ sizeMl: z.number().int().positive(), price: z.nu
 const productInput = z.object({
   name: z.string().trim().min(2).max(180), slug: z.string().trim().min(2).max(160).regex(/^[a-z0-9-]+$/),
   brand: z.string().trim().min(2).max(120), category: z.enum(["decant", "intact"]),
-  description: z.string().trim().min(20), notes: z.string().trim().min(3), family: z.string().trim().min(2),
+  description: z.string().trim().min(20).max(10000), notes: z.string().trim().min(3).max(1200), family: z.string().trim().min(2),
   imageUrl: z.string().trim().max(2000).refine((value) => value === "" || value.startsWith("/") || /^https:\/\//i.test(value), "Use a local path or HTTPS image URL"), imageKey: z.string().max(600).optional().nullable(), bestSeller: z.boolean(), specialOffer: z.boolean(), featured: z.boolean(),
   variants: z.array(variantInput).min(1).max(8),
 }).refine((data) => Boolean(data.imageUrl || data.imageKey), { message: "Add an image or image URL", path: ["imageUrl"] })
@@ -52,7 +52,7 @@ export const adminRouter = createRouter({
     };
   }),
 
-  orders: adminQuery.input(z.object({ q: z.string().optional() }).optional()).query(async ({ input }) => {
+  orders: adminQuery.input(z.object({ q: z.string().trim().max(120).optional() }).optional()).query(async ({ input }) => {
     const db = getDb();
     const q = input?.q?.trim();
     const rows = q ? await db.select().from(orders).where(or(like(orders.orderNumber, `%${q}%`), like(orders.phone, `%${q}%`), like(orders.customerName, `%${q}%`))).orderBy(desc(orders.createdAt)).limit(100) : await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(100);
