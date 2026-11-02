@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router";
-import { ArrowRight, Menu, Search, ShoppingBag, X } from "lucide-react";
+import { ArrowRight, Menu, Search, ShoppingBag, UserRound, X } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/providers/cart";
 import { trpc } from "@/providers/trpc";
 
@@ -27,6 +28,7 @@ export function Logo({ dark = false, className = "" }: { dark?: boolean; classNa
 export function Header() {
   const [open, setOpen] = useState(false);
   const { cart } = useCart();
+  const { user, isLoading: authLoading } = useAuth();
   const location = useLocation();
   const { data: settings } = trpc.store.settings.useQuery();
   useEffect(() => setOpen(false), [location.pathname]);
@@ -46,6 +48,7 @@ export function Header() {
       <div className="header-actions">
         <Link className="icon-button desktop-only" to="/shop?focus=search" aria-label="Search perfumes"><Search size={19} /></Link>
         <Link className="icon-button cart-link" to="/cart" aria-label={`Shopping bag with ${cart?.count ?? 0} items`}><ShoppingBag size={20} /><span>{cart?.count ?? 0}</span></Link>
+        <Link className="account-link" to={user?.role === "admin" ? "/admin" : user ? "/account" : "/login"} aria-label={user ? `Account: ${user.name || user.email}` : "Sign in or create an account"}><span className="account-avatar">{user?.name?.trim()?.charAt(0)?.toUpperCase() || (user ? <UserRound size={17}/> : <UserRound size={17}/>)}</span><span className="account-label">{authLoading ? "Account" : user?.name?.trim() || user?.email?.split("@")[0] || "Sign in"}</span></Link>
         <button className="icon-button mobile-menu-button" onClick={() => setOpen(true)} aria-label="Open menu" aria-expanded={open}><Menu size={22} /></button>
       </div>
     </header>
@@ -53,7 +56,7 @@ export function Header() {
       <button className="icon-button menu-close" onClick={() => setOpen(false)} aria-label="Close menu"><X /></button>
       <Logo />
       <nav>
-        {[["/shop", "All perfumes"], ["/decants", "Decants"], ["/intact", "Intact bottles"], ["/best-sellers", "Best sellers"], ["/offers", "Special offers"], ["/track", "Track an order"], ["/about", "Our story"], ["/contact", "Contact"]].map(([to, label], index) => <NavLink key={to} to={to}><span>0{index + 1}</span>{label}<ArrowRight /></NavLink>)}
+        {[["/shop", "All perfumes"], ["/decants", "Decants"], ["/intact", "Intact bottles"], ["/best-sellers", "Best sellers"], ["/offers", "Special offers"], ["/track", "Track an order"], [user ? (user.role === "admin" ? "/admin" : "/account") : "/login", user ? (user.name || "My account") : "Sign in / Register"], ["/about", "Our story"], ["/contact", "Contact"]].map(([to, label], index) => <NavLink key={to} to={to}><span>0{index + 1}</span>{label}<ArrowRight /></NavLink>)}
       </nav>
       <p>Fragrance, chosen with intention.<br />Delivered across Bangladesh.</p>
     </div>}
