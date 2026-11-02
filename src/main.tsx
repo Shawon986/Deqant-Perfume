@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router'
 import './index.css'
 import { TRPCProvider } from "@/providers/trpc"
 import { CartProvider } from "@/providers/cart"
+import { WishlistProvider } from "@/providers/wishlist"
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(
@@ -12,7 +13,9 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <TRPCProvider>
         <CartProvider>
-          <App />
+          <WishlistProvider>
+            <App />
+          </WishlistProvider>
         </CartProvider>
       </TRPCProvider>
     </BrowserRouter>
