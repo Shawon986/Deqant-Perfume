@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/providers/cart";
 import { trpc } from "@/providers/trpc";
 
-export const money = (value: number) => `৳${value.toLocaleString("en-BD")}`;
+import { money } from "@/lib/format";
 
 export function Reveal({ children, className = "" }: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -27,13 +27,14 @@ export function Logo({ dark = false, className = "" }: { dark?: boolean; classNa
 }
 
 export function Header() {
-  const [open, setOpen] = useState(false);
+  const location = useLocation();
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const open = openPath === location.pathname;
+  const setOpen = (value: boolean) => setOpenPath(value ? location.pathname : null);
   const { cart } = useCart();
   const { user, isLoading: authLoading } = useAuth();
   const wishlist = useWishlist();
-  const location = useLocation();
   const { data: settings } = trpc.store.settings.useQuery();
-  useEffect(() => setOpen(false), [location.pathname]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
     window.addEventListener("keydown", close);
