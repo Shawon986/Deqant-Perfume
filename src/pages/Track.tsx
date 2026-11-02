@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Check, Package, Search } from "lucide-react";
-import { PageShell, money } from "@/components/Storefront";
+import { PageShell } from "@/components/Storefront";
+import { money } from "@/lib/format";
 import { trpc } from "@/providers/trpc";
 
 const statuses = ["pending", "confirmed", "processing", "shipped", "delivered"];
