@@ -20,8 +20,8 @@ app.use("*", async (c, next) => {
   c.res.headers.set("X-Frame-Options", "DENY");
   c.res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   c.res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  c.res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  if (env.isProduction) c.res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  if (c.req.path.startsWith("/api/")) { c.res.headers.set("Cache-Control", "no-store"); c.res.headers.set("Vary", "Authorization"); }
+  if (env.isProduction) c.res.headers.set("Strict-Transport-Security", "max-age=15552000");
 });
 
 app.get("/health", (c) => c.json({ status: "ok", service: "deqant" }));
