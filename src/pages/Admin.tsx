@@ -29,6 +29,7 @@ function ProductEditor({ initial, onDone }: { initial?: { product: { id: number;
         return { sizeMl, price, originalPrice, stock };
       });
       const { variantsText, ...data } = draft;
+      void variantsText;
       if (initial) update.mutate({ id: initial.product.id, data: { ...data, variants } });
       else create.mutate({ ...data, variants });
     } catch (e) { setError(e instanceof Error ? e.message : "Check the variants"); }
